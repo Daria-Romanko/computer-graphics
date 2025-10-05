@@ -28,6 +28,7 @@ def create_board():
     pygame.display.flip()
     return screen
 
+# создание (и рисование) многоугольников
 def create_Polygons():
     polygon = Polygon()
     polygons = []
@@ -48,8 +49,7 @@ def create_Polygons():
                     return polygons
                 elif event.key == pygame.K_ESCAPE:
                     return
-    
-    return polygons
+
 
 # определяем, принадлежит ли точка многоугольнику
 def point_in_polygon(x, y, p):
@@ -88,27 +88,48 @@ def get_center(p):
         
     return x / n, y / n
 
+def redraw_all_polygons():
+    #TODO очистка сцены
+    for p in polygons:
+        for i in range(len(p.points)):
+            pygame.draw.circle(screen, black, p.points[i], 5)
+            pygame.draw.line(screen, black, p.points[i - 1], p.points[i], 1)
+    pygame.display.flip()
+        
+
+# меняет координаты многоугольника после какого-либо изменения положения
+def change_coordinates(p, m):
+    for i in range(len(p.points)):
+        c = [p.points[i][0], p.points[i][1], 1] * m
+        p.points[i] = (c[0], c[1])
+
 # Смещение на dx, dy
 def move_dxdy(p, dx, dy):
     m = [[  1,   0,   0],
          [  0,   1,   0],
          [-dx, -dy,   1]]
+    change_coordinates(p, m)
+    redraw_all_polygons()
 
 # Поворот вокруг заданной пользователем точки или своего центра
-def rotation_around_point(p, a, x = false, y = false):
+def rotation_around_point(p, a, x = False, y = False):
     if not x:
         x, y = get_center(p)
     m = [[cos(a), sin(a), 0], 
          [-sin(a), cos(a), 0], 
          [-x*cos(a) + y*sin(a) + x, -x*sin(a) - y*cos(a) + y, 1]]
+    change_coordinates(p, m)
+    redraw_all_polygons()
 
 # Масштабирование относительно заданной пользователем точки или своего центра
-def zooming_relative_point(p, kx, ky, x = false, y = false):
+def zooming_relative_point(p, kx, ky, x = False, y = False):
     if not x:
         x, y = get_center(p)
     m = [[kx, 0, 0], 
          [0, ky, 0], 
          [(1 - kx) * x, (1 - ky) * y, 1]]
+    change_coordinates(p, m)
+    redraw_all_polygons()
 
 # подразумевается, что на момент выполения заданий (вращений, определений, к чему относится точка и т.д.)
 # все многоугольники уже созданы и хранятся в списке polygons
@@ -116,11 +137,9 @@ def tasks():
     while True:
         comand = "" # какое действие было сделано последним
         for event in pygame.event.get():
-            point = pos # запоминаем, куда наимали в последний раз
             if event.type == pygame.QUIT:
                 return
             elif event.type == pygame.MOUSEBUTTONDOWN:
-            
                 # нажали лкм, но до этого никакой многоугольник не был выбран
                 if event.button == 1 and comand != "polygon_selected": 
                     p = find_polygon(pos, polygons) # определяем, на какой многоугольник нажали
@@ -129,8 +148,8 @@ def tasks():
                 
                 # если нажали лкм, и многоугольник уже был выбран раньше, значит, хотят выбрать точку
                 elif event.button == 1: 
+                    point = pos # запоминаем, куда наимали в последний раз
                     comand = "point_selected"
-                    point = pos
 
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
@@ -161,8 +180,6 @@ def tasks():
 
 screen = create_board()
 polygons = create_Polygons()
-
 tasks()
-
 pygame.quit()
 sys.exit()
