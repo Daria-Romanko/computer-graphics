@@ -1,24 +1,11 @@
-import pygame
 import sys
+import pygame
+import math
+
+pygame.init()
 
 white = (255, 255, 255)
 black = (0, 0, 0)
-
-class Polygon:
-    def __init__(self):
-        self.points = []
-        
-    def add_point(self, pos):
-        self.points.append(pos)
-        pygame.draw.circle(screen, black, pos, 5)
-        if len(self.points) >= 2:
-            pygame.draw.line(screen, black, self.points[-2], pos, 1)
-        pygame.display.flip()
-    
-    def complete(self):
-        if len(self.points) >= 3:
-            pygame.draw.line(screen, black, self.points[-1], self.points[0], 1)
-        pygame.display.flip()
 
 def create_board():
     pygame.init()
@@ -26,160 +13,211 @@ def create_board():
     font = pygame.font.Font(None, 36)
     screen.fill(white)
     pygame.display.flip()
-    return screen
+    return screen 
 
-# создание (и рисование) многоугольников
-def create_Polygons():
-    polygon = Polygon()
-    polygons = []
-    
-    while True:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                return
-            elif event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 1:
-                    polygon.add_point(event.pos)
-                else:
-                    polygon.complete()
-                    polygons.append(polygon)
-                    polygon = Polygon()
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_RETURN:
-                    return polygons
-                elif event.key == pygame.K_ESCAPE:
-                    return
+# добавить точку к многоугольнику
+def add_point_to_polygon(x, y, p):
+    pos = (x, y)
+    p.append(pos)
+    pygame.draw.circle(screen, black, pos, 5)
+    if len(p) >= 2: 
+        pygame.draw.line(screen, black, p[-2], pos, 1)
+    pygame.display.flip()
+
+# дорисовать последнее ребро в многоугольнике
+def complete_polygon(p):
+    if len(p) < 3: return
+    pygame.draw.line(screen, black, p[-1], p[0], 1)
+    pygame.display.flip()
 
 
 # определяем, принадлежит ли точка многоугольнику
-def point_in_polygon(x, y, p):
-    n = len(p.points)
+def point_in_polygon(x, y, points):
+    n = len(points)
     inside = False
+    p1x, p1y = points[0]
     
-    p1x, p1y = p.points[0]
     for i in range(1, n + 1):
-        p2x, p2y = p[i % n]
-        if y > min(p1y, p2y):
-            if y <= max(p1y, p2y):
-                if x <= max(p1x, p2x):
-                    if p1y != p2y:
-                        xinters = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
-                    if p1x == p2x or x <= xinters:
-                        inside = not inside
+        p2x, p2y = points[i % n]
+        if min(p1y, p2y) < y <= max(p1y, p2y):
+            if x <= max(p1x, p2x):
+                if p1y != p2y:
+                    xinters = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
+                if p1x == p2x or x <= xinters:
+                    inside = not inside
         p1x, p1y = p2x, p2y
     
     return inside
 
 # определяем, на какой многоугольник нажали
 def find_polygon(x, y, polygons):
-    for p, v in polygons:
+    for p in polygons:
         if point_in_polygon(x, y, p):
             return p
     return False
 
 # находит центр многоугольника как среднее арифметическое координат
 def get_center(p):
-    n = len(p.points)
+    n = len(p)
     x, y = 0, 0
-    
-    for v in p.points:
+    for v in p:
         x += v[0]
         y += v[1]
-        
     return x / n, y / n
 
-def redraw_all_polygons():
-    #TODO очистка сцены
+# заново перерисовывает все многоугольники
+def redraw_all_polygons(polygons):
+    screen.fill(white)
     for p in polygons:
-        for i in range(len(p.points)):
-            pygame.draw.circle(screen, black, p.points[i], 5)
-            pygame.draw.line(screen, black, p.points[i - 1], p.points[i], 1)
+        for i in range(len(p)):
+            pygame.draw.circle(screen, black, p[i], 5)
+            pygame.draw.line(screen, black, p[i - 1], p[i], 1)
     pygame.display.flip()
-        
 
+# умножение вектора на матрицу       
+def multiply_matrix(v, m):
+    r = [0, 0, 0]
+    for i in range(3):
+        for j in range(3):
+            r[i] += v[j] * m[j][i]
+    return r
+  
 # меняет координаты многоугольника после какого-либо изменения положения
 def change_coordinates(p, m):
-    for i in range(len(p.points)):
-        c = [p.points[i][0], p.points[i][1], 1] * m
-        p.points[i] = (c[0], c[1])
+    new_p = []
+    
+    for i in range(len(p)):
+        c = multiply_matrix([p[i][0], p[i][1], 1], m)
+        new_p.append((c[0], c[1]))
+        
+    return new_p
 
 # Смещение на dx, dy
-def move_dxdy(p, dx, dy):
-    m = [[  1,   0,   0],
-         [  0,   1,   0],
-         [-dx, -dy,   1]]
-    change_coordinates(p, m)
-    redraw_all_polygons()
+def move_dxdy(polygons, p, dx, dy):
+    m = [[1, 0, 0],
+         [0, 1, 0],
+         [dx, dy, 1]]
+    
+    idx = polygons.index(p)
+    polygons[idx] = change_coordinates(p, m)
+    redraw_all_polygons(polygons)
+    return polygons
 
 # Поворот вокруг заданной пользователем точки или своего центра
-def rotation_around_point(p, a, x = False, y = False):
-    if not x:
+def rotation_around_point(polygons, p, a, x = None, y = None):
+    if x is None:
         x, y = get_center(p)
-    m = [[cos(a), sin(a), 0], 
-         [-sin(a), cos(a), 0], 
-         [-x*cos(a) + y*sin(a) + x, -x*sin(a) - y*cos(a) + y, 1]]
-    change_coordinates(p, m)
-    redraw_all_polygons()
+        
+    cos_a = math.cos(math.radians(a))
+    sin_a = math.sin(math.radians(a))
+    
+    m = [
+        [cos_a, -sin_a, 0],
+        [sin_a, cos_a, 0], 
+        [-x * cos_a - y * sin_a + x, x * sin_a - y * cos_a + y, 1]
+    ]
+    
+    idx = polygons.index(p)
+    polygons[idx] = change_coordinates(p, m)
+    redraw_all_polygons(polygons)
+    return polygons
 
 # Масштабирование относительно заданной пользователем точки или своего центра
-def zooming_relative_point(p, kx, ky, x = False, y = False):
-    if not x:
+def zooming_relative_point(polygons, p, kx, ky, x = None, y = None):
+    if x is None:
         x, y = get_center(p)
+        
     m = [[kx, 0, 0], 
          [0, ky, 0], 
          [(1 - kx) * x, (1 - ky) * y, 1]]
-    change_coordinates(p, m)
-    redraw_all_polygons()
+    
+    idx = polygons.index(p)
+    polygons[idx] = change_coordinates(p, m)
+    redraw_all_polygons(polygons)
+    return polygons
 
-# подразумевается, что на момент выполения заданий (вращений, определений, к чему относится точка и т.д.)
-# все многоугольники уже созданы и хранятся в списке polygons
 def tasks():
+    comand = "" # какое действие было сделано последним
+    point = (0, 0)
+    p = [] # выбранный многоугольник
+    polygon = [] # создаваемый многоугольник
+    polygons = [] # все многоугольники
     while True:
-        comand = "" # какое действие было сделано последним
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return
             elif event.type == pygame.MOUSEBUTTONDOWN:
-                # нажали лкм, но до этого никакой многоугольник не был выбран
-                if event.button == 1 and comand != "polygon_selected": 
-                    p = find_polygon(pos, polygons) # определяем, на какой многоугольник нажали
-                    if not p: continue # если просто так нажали на поле - игнор
-                    comand = "polygon_selected" # если нажали на многоугольник, запоминаем этот факт
+                if event.button == 1:
+
+                    # нажали лкм и мы создаем многоугольник, значит, хотят добавить точку
+                    if comand == "creating_polygon":
+                        add_point_to_polygon(event.pos[0], event.pos[1], polygon)
+
+                    # нажали лкм, и это выбор многоугольника
+                    elif comand == "selecting_polygon": 
+                        p = find_polygon(event.pos[0], event.pos[1], polygons) # определяем, на какой многоугольник нажали
+                        if p is None: continue # если просто так нажали на поле - игнор
+                        comand = "polygon_selected" # если нажали на многоугольник, запоминаем этот факт
+
+                    # нажали лкм, и это выбор точки
+                    elif comand == "selecting_point": 
+                        point = event.pos # запоминаем, куда нажимали в последний раз
+                        comand = "point_selected"
+                  
+                else:
+
+                  # если нажали пкм и мы создаем многоугольник, то добавляем последнее ребро и завершаем его создание
+                  if comand == "creating_polygon":
+                      complete_polygon(polygon)
+                      polygons.append(polygon.copy())
+                      polygon.clear()
+                      comand = "polygon_created"
                 
-                # если нажали лкм, и многоугольник уже был выбран раньше, значит, хотят выбрать точку
-                elif event.button == 1: 
-                    point = pos # запоминаем, куда наимали в последний раз
-                    comand = "point_selected"
 
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     return
-                    
-                # если нажали R, выбрав точку (и предварительно многоугольник), то поворачиваем многоугольник вокруг этой точки на заданный угол
-                elif event.key == pygname.K_r and comand == "point_selected":
-                    rotation_around_point(p, int(input("angle: ")), point)
-                    
-                # если нажали R, предварительно выбрав только многоугольник, то поворачиваем многоугольник вокруг его центра на заданный угол
-                elif event.key == pygname.K_r and comand == "polygon_selected":
-                    rotation_around_point(p, int(input("angle: ")))
-                    
-                # если нажали Z, выбрав точку (и предварительно многоугольник), то масштабируем его относительно этой точки с заданными коэффициентами
-                elif event.key == pygname.K_z and comand == "point_selected":
-                    zooming_relative_point(p, int(input("kx: ")), int(input("ky: ")), point)
-                
-                # если нажали Z, предварительно выбрав только многоугольник, то масштабируем его относительно его центра с заданными коэффициентами
-                elif event.key == pygname.K_z and comand == "polygon_selected":
-                    zooming_relative_pointt(p, int(input("kx: ")), int(input("ky: ")))
-                
-                # если нажали M, предварительно выбрав многоугольник, то смещаем его на заданные dx, dy
-                elif event.key == pygname.K_m and comand == "polygon_selected":
-                    move_dxdy(p, int(input("dx: ")), int(input("dy: ")))
-              
+                  
+                # если нажали n, значит хотят создать многоугольник
+                elif event.key == pygame.K_n:
+                    comand = "creating_polygon"
 
+                # если нажали p, значит хотят выбрать точку
+                elif event.key == pygame.K_p:
+                    comand = "selecting_point"
 
+                # если нажали s, значит хотят выбрать многоугольник
+                elif event.key == pygame.K_s:
+                    comand = "selecting_polygon"
+                
+                # если нажали r, то поворачиваем выбранный ранее многоугольник вокруг выбранной точки на заданный угол
+                elif event.key == pygame.K_r and comand == "point_selected":
+                    polygons = rotation_around_point(polygons, p, 10, point[0], point[1])
+                    comand = "polygon_rotated"
+                    
+                # если нажали r, предварительно выбрав только многоугольник, то поворачиваем многоугольник вокруг его центра на заданный угол
+                elif event.key == pygame.K_r and comand == "polygon_selected":
+                    polygons = rotation_around_point(polygons, p, 10)
+                    comand = "polygon_rotated"
+                    
+                # если нажали z, то масштабируем выбранный ранее многоугольник относительно выбранной точки с заданными коэффициентами
+                elif event.key == pygame.K_z and comand == "point_selected":
+                    polygons = zooming_relative_point(polygons, p, 1.2, 1.1, point[0], point[1])
+                    comand = "polygon_zoomed"
+                
+                # если нажали z, предварительно выбрав только многоугольник, то масштабируем его относительно его центра с заданными коэффициентами
+                elif event.key == pygame.K_z and comand == "polygon_selected":
+                    polygons = zooming_relative_point(polygons, p, 1.2, 1.1)
+                    comand = "polygon_zoomed"
+                
+                # если нажали m, предварительно выбрав многоугольник, то смещаем его на заданные dx, dy
+                elif event.key == pygame.K_m and comand == "polygon_selected":
+                    polygons = move_dxdy(polygons, p, 10, 10)
+                    comand = "polygon_moved"
+
+                
 
 screen = create_board()
-polygons = create_Polygons()
 tasks()
 pygame.quit()
 sys.exit()
