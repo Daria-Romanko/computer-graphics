@@ -136,12 +136,33 @@ def zooming_relative_point(polygons, p, kx, ky, x = None, y = None):
     redraw_all_polygons(polygons)
     return polygons
 
+def line_intersection(p1, p2, p3, p4):
+    x1, y1 = p1
+    x2, y2 = p2
+    x3, y3 = p3
+    x4, y4 = p4
+
+    denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+    if abs(denom) < 1e-10:
+        return None
+
+    t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom
+    u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom
+
+    if 0 <= t <= 1 and 0 <= u <= 1:
+        x = x1 + t * (x2 - x1)
+        y = y1 + t * (y2 - y1)
+        return (x, y)
+    return None
+
 def tasks():
     comand = "" # какое действие было сделано последним
     point = (0, 0)
     p = [] # выбранный многоугольник
     polygon = [] # создаваемый многоугольник
     polygons = [] # все многоугольники
+    edge_points = []  # точки пользовательского ребра для поиска пересечений
+
     while True:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -163,7 +184,43 @@ def tasks():
                     elif comand == "selecting_point": 
                         point = event.pos # запоминаем, куда нажимали в последний раз
                         comand = "point_selected"
-                  
+                    
+                    elif comand == "drawing_edge_for_intersection":
+                        edge_points.append(event.pos)
+
+                        redraw_all_polygons(polygons)
+
+                        for pt in edge_points:
+                            pygame.draw.circle(screen, (255, 0, 0), pt, 5)
+
+                        if len(edge_points) == 2:
+                            start, end = edge_points
+                            pygame.draw.line(screen, (255, 0, 0), start, end, 2)
+
+                            intersection_points = []
+                            for poly in polygons:
+                                n = len(poly)
+                                for i in range(n):
+                                    a = poly[i]
+                                    b = poly[(i + 1) % n]
+                                    inter = line_intersection(start, end, a, b)
+                                    if inter is not None:
+                                        intersection_points.append(inter)
+
+                            for pt in intersection_points:
+                                pygame.draw.circle(screen, (0, 255, 0), (int(pt[0]), int(pt[1])), 6)
+
+                            if intersection_points:
+                                print("Найдены точки пересечения:")
+                                for pt in intersection_points:
+                                    print(f"  ({pt[0]:.2f}, {pt[1]:.2f})")
+                            else:
+                                print("Пересечений не найдено.")
+
+                            edge_points = []
+
+                        pygame.display.flip()
+                            
                 else:
 
                   # если нажали пкм и мы создаем многоугольник, то добавляем последнее ребро и завершаем его создание
@@ -172,22 +229,34 @@ def tasks():
                       polygons.append(polygon.copy())
                       polygon.clear()
                       comand = "polygon_created"
-                
-
+                    
+                  elif comand == "drawing_edge_for_intersection":
+                      edge_points.clear()
+                      screen.fill(white)
+                      redraw_all_polygons(polygons)
+                      comand = ""
+                      print("Рисование ребра отменено")
+                  
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     return
                   
                 # если нажали n, значит хотят создать многоугольник
                 elif event.key == pygame.K_n:
+                    if comand == "drawing_edge_for_intersection":
+                        redraw_all_polygons(polygons)
                     comand = "creating_polygon"
 
                 # если нажали p, значит хотят выбрать точку
                 elif event.key == pygame.K_p:
+                    if comand == "drawing_edge_for_intersection":
+                        redraw_all_polygons(polygons)
                     comand = "selecting_point"
 
                 # если нажали s, значит хотят выбрать многоугольник
                 elif event.key == pygame.K_s:
+                    if comand == "drawing_edge_for_intersection":
+                        redraw_all_polygons(polygons)
                     comand = "selecting_polygon"
                 
                 # если нажали r, то поворачиваем выбранный ранее многоугольник вокруг выбранной точки на заданный угол
@@ -214,9 +283,22 @@ def tasks():
                 elif event.key == pygame.K_m and comand == "polygon_selected":
                     polygons = move_dxdy(polygons, p, 10, 10)
                     comand = "polygon_moved"
-
                 
+                # если нажали c, очищаем всю сцену
+                elif event.key == pygame.K_c:
+                    polygons.clear()
+                    polygon.clear()
+                    screen.fill(white)
+                    pygame.display.flip()
+                    comand = ""
+                    print("Сцена отчищена")
 
+                # если нажали i, то переходим в режим рисования ребра для поиска пересечений
+                elif event.key == pygame.K_i:
+                    comand = "drawing_edge_for_intersection"
+                    edge_points.clear()
+                    print("Режим поиска пересечений: кликните 2 раза, чтобы задать ребро.")            
+                
 screen = create_board()
 tasks()
 pygame.quit()
