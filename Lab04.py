@@ -165,6 +165,51 @@ def line_intersection(a, b, c, d):
     else:
         return None
 
+def point_side_of_edge(a, b, c):
+    """
+    Определяет, где находится точка c относительно направленного ребра ab.
+    Возвращает:
+      1  — точка слева
+      -1 — точка справа
+      0 — точка на линии
+    """
+    xa, ya = a
+    xb, yb = b
+    xc, yc = c
+    
+    det = (xb - xa) * (yc - ya) - (yb - ya) * (xc - xa)
+    if abs(det) < 1e-9:
+        return 0
+    elif det > 0:
+        return 1  # слева
+    else:
+        return -1 # справа
+
+def point_in_convex_polygon(pt, polygon):
+    """
+    Проверяет, принадлежит ли точка pt выпуклому полигону polygon.
+    Возвращает True/False.
+    Примечание: точка принадлежит ему, 
+                если она всегда находится с одной стороны всех его рёбер.
+    """
+    n = len(polygon)
+    if n < 3:
+        return False
+    
+    prev_side = None
+    for i in range(n):
+        a = polygon[i]
+        b = polygon[(i + 1) % n]
+        side = point_side_of_edge(a, b, pt)
+        if side == 0:
+            continue
+        if prev_side is None:
+            prev_side = side
+        elif prev_side != side:
+            return False
+    return True
+
+
 def tasks():
     comand = "" # какое действие было сделано последним
     point = (0, 0)
@@ -231,6 +276,20 @@ def tasks():
 
                         pygame.display.flip()
                             
+                    elif comand == "check_point_in_polygon":
+                        point = event.pos
+                        print("Клик:", event.pos)
+                        pygame.draw.circle(screen, (0, 0, 255), point, 5)
+                        pygame.display.flip()
+                        for poly in polygons:
+                            if point_in_convex_polygon(point, poly):
+                                print("Точка внутри выпуклого многоугольника.")
+                            elif point_in_polygon(point[0], point[1], poly):
+                                print("Точка внутри невыпуклого многоугольника (метод лучей).")
+                            else:
+                                print("Точка вне многоугольников.")
+                        comand = ""
+
                 else:
 
                   # если нажали пкм и мы создаем многоугольник, то добавляем последнее ребро и завершаем его создание
@@ -308,7 +367,12 @@ def tasks():
                     comand = "drawing_edge_for_intersection"
                     edge_points.clear()
                     print("Режим поиска пересечений: кликните 2 раза, чтобы задать ребро.")            
-                
+            
+                elif event.key == pygame.K_t:
+                    comand = "check_point_in_polygon"
+                    print("Режим проверки точки: кликните, чтобы выбрать точку для проверки.")
+                    
+
 screen = create_board()
 tasks()
 pygame.quit()
