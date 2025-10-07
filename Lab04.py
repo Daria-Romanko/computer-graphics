@@ -136,24 +136,34 @@ def zooming_relative_point(polygons, p, kx, ky, x = None, y = None):
     redraw_all_polygons(polygons)
     return polygons
 
-def line_intersection(p1, p2, p3, p4):
-    x1, y1 = p1
-    x2, y2 = p2
-    x3, y3 = p3
-    x4, y4 = p4
-
-    denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
-    if abs(denom) < 1e-10:
+def line_intersection(a, b, c, d):
+    n_x = -(d[1] - c[1])
+    n_y = d[0] - c[0]
+    
+    numerator = -(n_x * (a[0] - c[0]) + n_y * (a[1] - c[1]))
+    denominator = n_x * (b[0] - a[0]) + n_y * (b[1] - a[1])
+    
+    if abs(denominator) < 1e-10:
         return None
+    
+    t = numerator / denominator
+    
+    if t < 0 or t > 1:
+        return None
+    
+    intersection_x = a[0] + t * (b[0] - a[0])
+    intersection_y = a[1] + t * (b[1] - a[1])
 
-    t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom
-    u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom
-
-    if 0 <= t <= 1 and 0 <= u <= 1:
-        x = x1 + t * (x2 - x1)
-        y = y1 + t * (y2 - y1)
-        return (x, y)
-    return None
+    def is_between(v1, v2, value):
+        return min(v1, v2) <= value <= max(v1, v2)
+    
+    if (is_between(a[0], b[0], intersection_x) and 
+        is_between(a[1], b[1], intersection_y) and
+        is_between(c[0], d[0], intersection_x) and 
+        is_between(c[1], d[1], intersection_y)):
+        return (intersection_x, intersection_y)
+    else:
+        return None
 
 def tasks():
     comand = "" # какое действие было сделано последним
