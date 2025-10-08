@@ -278,16 +278,31 @@ def tasks():
                             
                     elif comand == "check_point_in_polygon":
                         point = event.pos
-                        print("Клик:", event.pos)
                         pygame.draw.circle(screen, (0, 0, 255), point, 5)
                         pygame.display.flip()
+
+                        # Проверяем положение точки относительно каждого ребра каждого многоугольника
                         for poly in polygons:
+                            print("\nПроверка относительно рёбер многоугольника:")
+                            for i in range(len(poly)):
+                                a = poly[i]
+                                b = poly[(i + 1) % len(poly)]
+                                side = point_side_of_edge(a, b, point)
+                                if side == 1:
+                                    print(f"  Точка слева от ребра {a} → {b}")
+                                elif side == -1:
+                                    print(f"  Точка справа от ребра {a} → {b}")
+                                else:
+                                    print(f"  Точка на ребре {a} → {b}")
+
+                            # После классификации проверяем принадлежность
                             if point_in_convex_polygon(point, poly):
-                                print("Точка внутри выпуклого многоугольника.")
+                                print("→ Точка внутри выпуклого многоугольника.")
                             elif point_in_polygon(point[0], point[1], poly):
-                                print("Точка внутри невыпуклого многоугольника (метод лучей).")
+                                print("→ Точка внутри невыпуклого многоугольника (метод лучей).")
                             else:
-                                print("Точка вне многоугольников.")
+                                print("→ Точка вне многоугольников.")
+
                         comand = ""
 
                 else:
