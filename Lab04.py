@@ -219,7 +219,7 @@ def point_side_of_edge(a, b, c):
     xb, yb = b
     xc, yc = c
     
-    det = (xb - xa) * (yc - ya) - (yb - ya) * (xc - xa)
+    det = (yb - ya) * (xc - xa) - (xb - xa) * (yc - ya)
     if abs(det) < 1e-9:
         return 0
     elif det > 0:
