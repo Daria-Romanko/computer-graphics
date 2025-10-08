@@ -165,6 +165,48 @@ def line_intersection(a, b, c, d):
     else:
         return None
 
+def distance_point_to_line(point, line_start, line_end):
+    x0, y0 = point
+    x1, y1 = line_start
+    x2, y2 = line_end
+
+    dx = x2 - x1
+    dy = y2 - y1
+
+    t = ((x0 - x1) * dx + (y0 - y1) * dy) / (dx * dx + dy * dy)
+
+    if 0 <= t <= 1:
+        proj_x = x1 + t * dx
+        proj_y = y1 + t * dy
+        return math.sqrt((x0 - proj_x) * (x0 - proj_x) + (y0 - proj_y)*(y0 - proj_y))
+    else:
+        dist_to_a = math.sqrt((x0 - x1) * (x0 - x1) + (y0 - y1) * (y0 - y1))
+        dist_to_b = math.sqrt((x0 - x2) * (x0 - x2) + (y0 - y2) * (y0 - y2))
+        return min(dist_to_a, dist_to_b)
+
+
+def find_nearest_edge(point, polygons):
+    min_distance = float('inf')
+    nearest_edge_start = None
+    nearest_edge_end = None
+
+    for poly in polygons:
+        n = len(poly)
+        for i in range(n):
+            a = poly[i]
+            b = poly[(i + 1) % n]
+
+            if a == b:
+                continue
+
+            dist = distance_point_to_line(point, a, b)
+            if dist < min_distance:
+                min_distance = dist
+                nearest_edge_start = a
+                nearest_edge_end = b
+
+    return nearest_edge_start, nearest_edge_end
+
 def point_side_of_edge(a, b, c):
     """
     Определяет, где находится точка c относительно направленного ребра ab.
@@ -304,6 +346,30 @@ def tasks():
                                 print("→ Точка вне многоугольников.")
 
                         comand = ""
+                    elif comand == "classify_point_relative_to_edge":
+                        point = event.pos
+
+                        edge_start, edge_end = find_nearest_edge(point, polygons)
+                        if edge_start is None:
+                            print("Не найдено рёбер.")
+                            continue
+
+                        side = point_side_of_edge(edge_start, edge_end, point)
+
+                        screen.fill(white)
+                        redraw_all_polygons(polygons)
+                        pygame.draw.line(screen, (255, 0, 0), edge_start, edge_end, 3)
+                        pygame.draw.circle(screen, (0, 0, 255), point, 3) 
+                        pygame.display.flip()
+
+                        if side == 1:
+                            result = "слева"
+                        elif side == -1:
+                            result = "справа"
+                        else:
+                            result = "на ребре"
+
+                        print(f"Точка {point} находится {result} от ближайшего ребра {edge_start} -> {edge_end}")
 
                 else:
 
@@ -321,26 +387,27 @@ def tasks():
                       comand = ""
                       print("Рисование ребра отменено")
                   
+                  else:
+                      screen.fill(white)
+                      redraw_all_polygons(polygons)
+                  
             elif event.type == pygame.KEYDOWN:
+                screen.fill(white)
+                redraw_all_polygons(polygons)
+
                 if event.key == pygame.K_ESCAPE:
                     return
-                  
+            
                 # если нажали n, значит хотят создать многоугольник
                 elif event.key == pygame.K_n:
-                    if comand == "drawing_edge_for_intersection":
-                        redraw_all_polygons(polygons)
                     comand = "creating_polygon"
 
                 # если нажали p, значит хотят выбрать точку
                 elif event.key == pygame.K_p:
-                    if comand == "drawing_edge_for_intersection":
-                        redraw_all_polygons(polygons)
                     comand = "selecting_point"
 
                 # если нажали s, значит хотят выбрать многоугольник
                 elif event.key == pygame.K_s:
-                    if comand == "drawing_edge_for_intersection":
-                        redraw_all_polygons(polygons)
                     comand = "selecting_polygon"
                 
                 # если нажали r, то поворачиваем выбранный ранее многоугольник вокруг выбранной точки на заданный угол
@@ -386,6 +453,10 @@ def tasks():
                 elif event.key == pygame.K_t:
                     comand = "check_point_in_polygon"
                     print("Режим проверки точки: кликните, чтобы выбрать точку для проверки.")
+                
+                elif event.key == pygame.K_k:
+                        comand = "classify_point_relative_to_edge"
+                        print("Кликните чтобы классифицировать точку относительно ближайшего ребра:") 
                     
 
 screen = create_board()
