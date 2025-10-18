@@ -1,0 +1,156 @@
+import turtle
+import random
+import math
+
+class LSystem:
+    def __init__(self):
+        self.turtle = turtle.Turtle()
+        self.screen = turtle.Screen()
+        self.screen.tracer(0)
+        self.turtle.hideturtle()
+        
+    def load_system(self, filename):
+        with open(filename) as f:
+            lines = [line.strip() for line in f if line.strip()]
+        
+        # Парсинг основных параметров
+        first_line = lines[0].split()
+        self.axiom = first_line[0]
+        self.angle = float(first_line[1])
+        self.initial_direction = float(first_line[2])
+        
+        # Парсинг правил
+        self.rules = {}
+        for line in lines[1:]:
+            if '->' in line:
+                kv = line.split('->')
+                key, value = kv[0], kv[1]
+                self.rules[key.strip()] = value.strip()
+    
+    def apply_rules(self, sequence, iterations):
+        result = sequence
+        for i in range(iterations):
+            new_result = ""
+            for char in result:
+                if char in self.rules:
+                    new_result += self.rules[char]
+                else:
+                    new_result += char
+            result = new_result
+        return result
+    
+    def calculate_bounds(self, sequence, step_size):
+        x, y = 0, 0
+        angle = self.initial_direction
+        min_x = max_x = min_y = max_y = 0
+        stack = []
+        
+        for char in sequence:
+            if char == 'F' or char == 'G':
+                x += step_size * math.cos(math.radians(angle))
+                y += step_size * math.sin(math.radians(angle))
+                min_x = min(min_x, x)
+                max_x = max(max_x, x)
+                min_y = min(min_y, y)
+                max_y = max(max_y, y)
+            elif char == '+':
+                angle += self.angle
+            elif char == '-':
+                angle -= self.angle
+            elif char == '[':
+                stack.append((x, y, angle))
+            elif char == ']':
+                x, y, angle = stack.pop()
+        
+        return min_x, max_x, min_y, max_y
+    
+    def draw(self, sequence, step_size, width=800, height=600, 
+             randomness=0, color_change=False, width_change=False):
+
+        min_x, max_x, min_y, max_y = self.calculate_bounds(sequence, step_size)
+        
+        range_x = max_x - min_x
+        range_y = max_y - min_y
+        scale_x = width * 0.8 / range_x if range_x > 0 else 1
+        scale_y = height * 0.8 / range_y if range_y > 0 else 1
+        scale = min(scale_x, scale_y)
+        
+        start_x = -width/2 + (width - range_x * scale) / 2
+        start_y = -height/2 + (height - range_y * scale) / 2
+        
+        self.turtle.penup()
+        self.turtle.goto(start_x, start_y)
+        self.turtle.pendown()
+        self.turtle.setheading(self.initial_direction)
+        
+        stack = []
+        current_width = 3 if width_change else 1
+        current_color = (0.5, 0.25, 0) if color_change else (0, 0, 0)  # Коричневый
+        
+        for char in sequence:
+            if char == 'F' or char == 'G':  # Движение вперед с рисованием
+                if width_change:
+                    self.turtle.pensize(max(1, current_width))
+                if color_change:
+                    self.turtle.color(current_color)
+                
+                # Добавляем случайность к шагу
+                actual_step = step_size * scale * (1 + random.uniform(-randomness, randomness))
+                self.turtle.forward(actual_step)
+                
+                # Изменяем ширину и цвет для следующего шага
+                if width_change:
+                    current_width *= 0.8
+                if color_change:
+                    # Плавный переход от коричневого к зеленому
+                    r = max(0, min(1, current_color[0] - 0.05))
+                    g = min(1, current_color[1] + 0.05)
+                    b = max(0, min(1, current_color[2] - 0.02))
+                    current_color = (r, g, b)
+                    
+            elif char == 'f':  # Движение вперед без рисования
+                actual_step = step_size * scale * (1 + random.uniform(-randomness, randomness))
+                self.turtle.penup()
+                self.turtle.forward(actual_step)
+                self.turtle.pendown()
+                
+            elif char == '+':  # Поворот влево
+                actual_angle = self.angle * (1 + random.uniform(-randomness, randomness))
+                self.turtle.left(actual_angle)
+                
+            elif char == '-':  # Поворот вправо
+                actual_angle = self.angle * (1 + random.uniform(-randomness, randomness))
+                self.turtle.right(actual_angle)
+                
+            elif char == '[':  # Начало ветви
+                stack.append((
+                    self.turtle.position(),
+                    self.turtle.heading(),
+                    current_width,
+                    current_color
+                ))
+                if width_change:
+                    current_width *= 0.7
+                
+            elif char == ']':  # Конец ветви
+                if stack:
+                    position, heading, old_width, old_color = stack.pop()
+                    self.turtle.penup()
+                    self.turtle.goto(position)
+                    self.turtle.setheading(heading)
+                    self.turtle.pendown()
+                    current_width = old_width
+                    current_color = old_color
+
+        self.screen.update()
+
+
+lsys = LSystem()
+
+lsys.load_system('tree.txt')
+sequence = lsys.apply_rules(lsys.axiom, 4)
+lsys.draw(sequence, step_size=5, randomness=0.1, color_change=True, width_change=True)
+
+
+turtle.mainloop()
+
