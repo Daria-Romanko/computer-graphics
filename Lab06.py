@@ -130,6 +130,14 @@ class Polyhedron:
         z = sum(p.z for p in all_points) / len(all_points)
         
         return Point3D(x, y, z)
+    
+    def scale_about_center(self, factor):
+        center_point = self.get_center()
+        translate_to_origin = AffineTransform.translation(-center_point.x, -center_point.y, -center_point.z)
+        scale_matrix = AffineTransform.scaling(factor, factor, factor)
+        translate_back = AffineTransform.translation(center_point.x, center_point.y, center_point.z)
+        total_transform = np.dot(translate_back, np.dot(scale_matrix, translate_to_origin))
+        self.apply_transform(total_transform)
 
 class Octahedron(Polyhedron):
     def __init__(self, size=1):
@@ -720,9 +728,21 @@ class PolyhedronRenderer:
                 elif event.key == pygame.K_z:
                     transform = AffineTransform.rotation_z(math.pi / 8)
                     self.current_polyhedron.apply_transform(transform)
+                elif event.key == pygame.K_9:
+                    self.current_polyhedron.scale_about_center(1.2)
+                elif  event.key == pygame.K_0:
+                    self.current_polyhedron.scale_about_center(0.8)
                 elif event.key == pygame.K_m:
-                    # Отражение относительно плоскости YZ
+                    # Отражение относительно плоскости yz
                     transform = AffineTransform.reflection_yz()
+                    self.current_polyhedron.apply_transform(transform)
+                elif event.key == pygame.K_n:
+                    # Отражение относительно плоскости xy
+                    transform = AffineTransform.reflection_xy()
+                    self.current_polyhedron.apply_transform(transform)
+                elif event.key == pygame.K_b:
+                    # Отражение относительно плоскости xz
+                    transform = AffineTransform.reflection_xz()
                     self.current_polyhedron.apply_transform(transform)
                 elif event.key == pygame.K_c:
                     # Вращение вокруг прямой через центр, параллельной оси X
