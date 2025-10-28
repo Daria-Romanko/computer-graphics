@@ -21,6 +21,28 @@ class Point3D:
     
     def dot(self, other):
         return self.x * other.x + self.y * other.y + self.z * other.z
+    
+    def __add__(self, other):
+        return Point3D(self.x + other.x, self.y + other.y, self.z + other.z)
+
+    def cross(self, other):
+        return Point3D(
+            self.y * other.z - self.z * other.y,
+            self.z * other.x - self.x * other.z,
+            self.x * other.y - self.y * other.x
+        )
+
+    def length(self):
+        return math.sqrt(self.x**2 + self.y**2 + self.z**2)
+
+    def normalize(self):
+        length = self.length()
+        if length > 0:
+            return Point3D(self.x/length, self.y/length, self.z/length)
+        return self
+
+    def __str__(self):
+        return f"({self.x}, {self.y}, {self.z})"
 
 class Face:
     def __init__(self, points, color=(255, 255, 255)):
@@ -96,6 +118,18 @@ class Polyhedron:
             transformed_face = face.apply_transform(self.transform_matrix)
             transformed_faces.append(transformed_face)
         return transformed_faces
+    
+    def get_center(self):
+        """Вычисляет центр многогранника"""
+        all_points = []
+        for face in self.faces:
+            all_points.extend(face.points)
+        
+        x = sum(p.x for p in all_points) / len(all_points)
+        y = sum(p.y for p in all_points) / len(all_points)
+        z = sum(p.z for p in all_points) / len(all_points)
+        
+        return Point3D(x, y, z)
 
 class Octahedron(Polyhedron):
     def __init__(self, size=1):
@@ -347,6 +381,151 @@ class AffineTransform:
             [0, 0, 0, 1]
         ])
 
+
+    @staticmethod
+    def reflection_xy():
+        """Отражение относительно плоскости XY"""
+        return np.array([
+            [1, 0, 0, 0],
+            [0, 1, 0, 0],
+            [0, 0, -1, 0],
+            [0, 0, 0, 1]
+        ])
+
+    @staticmethod
+    def reflection_xz():
+        """Отражение относительно плоскости XZ"""
+        return np.array([
+            [1, 0, 0, 0],
+            [0, -1, 0, 0],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1]
+        ])
+
+    @staticmethod
+    def reflection_yz():
+        """Отражение относительно плоскости YZ"""
+        return np.array([
+            [-1, 0, 0, 0],
+            [0, 1, 0, 0],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1]
+        ])
+    
+
+    @staticmethod
+    def rotation_around_axis(axis, angle):
+        """
+        Вращение вокруг произвольной оси
+        axis - единичный вектор направления оси
+        angle - угол вращения
+        """
+        u, v, w = axis
+        cos_a = math.cos(angle)
+        sin_a = math.sin(angle)
+        one_minus_cos = 1 - cos_a
+        
+        return np.array([
+            [cos_a + u*u*one_minus_cos, u*v*one_minus_cos - w*sin_a, u*w*one_minus_cos + v*sin_a, 0],
+            [u*v*one_minus_cos + w*sin_a, cos_a + v*v*one_minus_cos, v*w*one_minus_cos - u*sin_a, 0],
+            [u*w*one_minus_cos - v*sin_a, v*w*one_minus_cos + u*sin_a, cos_a + w*w*one_minus_cos, 0],
+            [0, 0, 0, 1]
+        ])
+    
+
+    @staticmethod
+    def rotation_around_line_through_center(polyhedron, axis, angle):
+        """
+        Вращение многогранника вокруг прямой, проходящей через его центр,
+        параллельно выбранной координатной оси
+        """
+        center = polyhedron.get_center()
+        
+        # 1. Перенос в начало координат
+        T1 = AffineTransform.translation(-center.x, -center.y, -center.z)
+        
+        # 2. Вращение вокруг оси
+        if axis == 'x':
+            R = AffineTransform.rotation_x(angle)
+        elif axis == 'y':
+            R = AffineTransform.rotation_y(angle)
+        elif axis == 'z':
+            R = AffineTransform.rotation_z(angle)
+        else:
+            raise ValueError("Axis must be 'x', 'y', or 'z'")
+        
+        # 3. Обратный перенос
+        T2 = AffineTransform.translation(center.x, center.y, center.z)
+        
+        # Комбинированная матрица: T2 * R * T1
+        return np.dot(T2, np.dot(R, T1))
+    
+
+    @staticmethod
+    def rotation_around_arbitrary_line(point1, point2, angle):
+        """
+        Вращение вокруг произвольной прямой, заданной двумя точками
+        """
+        # Вектор направления прямой
+        direction = Point3D(point2.x - point1.x, point2.y - point1.y, point2.z - point1.z)
+        direction = direction.normalize()
+        
+        u, v, w = direction.x, direction.y, direction.z
+        
+        # 1. Перенос в начало координат (точка point1 становится началом)
+        T1 = AffineTransform.translation(-point1.x, -point1.y, -point1.z)
+        
+        # 2. Совмещение прямой с осью Z
+        # Вычисляем углы поворота
+        d = math.sqrt(v*v + w*w)
+        
+        if d != 0:
+            # Поворот вокруг X
+            Rx = np.array([
+                [1, 0, 0, 0],
+                [0, w/d, -v/d, 0],
+                [0, v/d, w/d, 0],
+                [0, 0, 0, 1]
+            ])
+            
+            # Поворот вокруг Y
+            Ry = np.array([
+                [d, 0, -u, 0],
+                [0, 1, 0, 0],
+                [u, 0, d, 0],
+                [0, 0, 0, 1]
+            ])
+        else:
+            # Если прямая уже параллельна оси X
+            Rx = np.identity(4)
+            if u < 0:
+                Ry = AffineTransform.rotation_y(math.pi)
+            else:
+                Ry = np.identity(4)
+        
+        # 3. Вращение вокруг Z
+        Rz = AffineTransform.rotation_z(angle)
+        
+        # 4. Обратные преобразования
+        if d != 0:
+            Ry_inv = np.linalg.inv(Ry)
+            Rx_inv = np.linalg.inv(Rx)
+        else:
+            if u < 0:
+                Ry_inv = AffineTransform.rotation_y(-math.pi)
+            else:
+                Ry_inv = np.identity(4)
+            Rx_inv = np.identity(4)
+        
+        # 5. Обратный перенос
+        T2 = AffineTransform.translation(point1.x, point1.y, point1.z)
+        
+        # Комбинированная матрица: T2 * Rx_inv * Ry_inv * Rz * Ry * Rx * T1
+        if d != 0:
+            return np.dot(T2, np.dot(Rx_inv, np.dot(Ry_inv, np.dot(Rz, np.dot(Ry, np.dot(Rx, T1))))))
+        else:
+            return np.dot(T2, np.dot(Ry_inv, np.dot(Rz, np.dot(Ry, T1))))
+
 class PolyhedronRenderer:
     def __init__(self, width=800, height=600):
         pygame.init()
@@ -368,6 +547,28 @@ class PolyhedronRenderer:
         
         self.current_polyhedron = self.octahedron
         self.current_polyhedron_name = "octahedron"
+
+        self.projection_type = "perspective"  # "perspective" или "axonometric"
+        self.arbitrary_line_point1 = Point3D(-2, -2, -2)
+        self.arbitrary_line_point2 = Point3D(2, 2, 2)
+        self.show_arbitrary_line = False
+
+    def draw_arbitrary_line(self):
+        """Рисует произвольную прямую для наглядности"""
+        if not self.show_arbitrary_line:
+            return
+        
+        p1_2d = self.project_3d_to_2d(self.arbitrary_line_point1)
+        p2_2d = self.project_3d_to_2d(self.arbitrary_line_point2)
+        
+        pygame.draw.line(self.screen, (255, 0, 255), p1_2d, p2_2d, 2)  # Розовый
+        
+        # Рисуем точки
+        pygame.draw.circle(self.screen, (255, 0, 0), (int(p1_2d[0]), int(p1_2d[1])), 5)
+        pygame.draw.circle(self.screen, (0, 255, 0), (int(p2_2d[0]), int(p2_2d[1])), 5)
+
+
+
     
     def switch_polyhedron(self, polyhedron_type):
         """Переключение между многогранниками"""
@@ -390,24 +591,43 @@ class PolyhedronRenderer:
         self.camera_angle_x = 0
         self.camera_angle_y = 0
      
-    def project_3d_to_2d(self, point):
-        rot_x = AffineTransform.rotation_x(self.camera_angle_x)
-        rot_y = AffineTransform.rotation_y(self.camera_angle_y)
-        transform = np.dot(rot_y, rot_x)
-        
-        point_array = point.to_array()
-        transformed = np.dot(transform, point_array)
-        
-        z = transformed[2] + self.camera_distance
-        if z == 0:
-            z = 0.001
-            
-        factor = 200 / z
-        x = transformed[0] * factor + self.width / 2
-        y = transformed[1] * factor + self.height / 2
-        
-        return (x, y)
     
+    def project_3d_to_2d(self, point):
+        if self.projection_type == "perspective":
+            # Перспективная проекция
+            rot_x = AffineTransform.rotation_x(self.camera_angle_x)
+            rot_y = AffineTransform.rotation_y(self.camera_angle_y)
+            transform = np.dot(rot_y, rot_x)
+            
+            point_array = point.to_array()
+            transformed = np.dot(transform, point_array)
+            
+            z = transformed[2] + self.camera_distance
+            if z == 0:
+                z = 0.001
+                
+            factor = 200 / z
+            x = transformed[0] * factor + self.width / 2
+            y = transformed[1] * factor + self.height / 2
+            
+            return (x, y)
+        else:
+            # Аксонометрическая проекция
+            rot_x = AffineTransform.rotation_x(self.camera_angle_x)
+            rot_y = AffineTransform.rotation_y(self.camera_angle_y)
+            transform = np.dot(rot_y, rot_x)
+            
+            point_array = point.to_array()
+            transformed = np.dot(transform, point_array)
+            
+            # Аксонометрическая проекция (просто игнорируем Z)
+            factor = 100
+            x = transformed[0] * factor + self.width / 2
+            y = transformed[1] * factor + self.height / 2
+            
+            return (x, y)
+
+
     def draw_polyhedron(self):
         self.screen.fill((0, 0, 0))
         
@@ -453,10 +673,18 @@ class PolyhedronRenderer:
         info_text = f"Polyhedron: {self.current_polyhedron_name}"
         text_surface = self.font.render(info_text, True, (255, 255, 255))
         self.screen.blit(text_surface, (10, 10))
-        
-        controls_text = "1-Octahedron 2-Icosahedron 3-Dodecahedron R-Reset"
-        controls_surface = pygame.font.Font(None, 24).render(controls_text, True, (255, 255, 255))
-        self.screen.blit(controls_surface, (10, self.height - 30))
+        controls_lines = [
+            "1-Octahedron 2-Icosahedron 3-Dodecahedron",
+            "R-Reset T-Translate S-Scale",
+            "X/Y/Z-Rotate M-Mirror C-CenterRot",
+            "L-ArbRot P-Projection A-ShowLine",
+            "Arrows-Camera"
+        ]
+        small_font = pygame.font.Font(None, 24)
+        for i, line in enumerate(controls_lines):
+            controls_surface = small_font.render(line, True, (255, 255, 255))
+            # Позиционируем в левом нижнем углу
+            self.screen.blit(controls_surface, (10, self.height - 150 + i * 25))
         
         pygame.display.flip()
     
@@ -492,6 +720,31 @@ class PolyhedronRenderer:
                 elif event.key == pygame.K_z:
                     transform = AffineTransform.rotation_z(math.pi / 8)
                     self.current_polyhedron.apply_transform(transform)
+                elif event.key == pygame.K_m:
+                    # Отражение относительно плоскости YZ
+                    transform = AffineTransform.reflection_yz()
+                    self.current_polyhedron.apply_transform(transform)
+                elif event.key == pygame.K_c:
+                    # Вращение вокруг прямой через центр, параллельной оси X
+                    transform = AffineTransform.rotation_around_line_through_center(
+                        self.current_polyhedron, 'x', math.pi / 6
+                    )
+                    self.current_polyhedron.apply_transform(transform)
+                elif event.key == pygame.K_l:
+                    # Вращение вокруг произвольной прямой
+                    transform = AffineTransform.rotation_around_arbitrary_line(
+                        self.arbitrary_line_point1, self.arbitrary_line_point2, math.pi / 6
+                    )
+                    self.current_polyhedron.apply_transform(transform)
+                elif event.key == pygame.K_p:
+                    # Переключение типа проекции
+                    if self.projection_type == "perspective":
+                        self.projection_type = "axonometric"
+                    else:
+                        self.projection_type = "perspective"
+                elif event.key == pygame.K_a:
+                    # Показать/скрыть произвольную прямую
+                    self.show_arbitrary_line = not self.show_arbitrary_line
         
         # Управление камерой
         keys = pygame.key.get_pressed()
@@ -514,6 +767,34 @@ class PolyhedronRenderer:
             self.clock.tick(60)
         
         pygame.quit()
+
+class Projection:
+    @staticmethod
+    def perspective(fov=60, aspect=1, near=0.1, far=100):
+        """Перспективная проекция"""
+        f = 1.0 / math.tan(math.radians(fov) / 2)
+        return np.array([
+            [f/aspect, 0, 0, 0],
+            [0, f, 0, 0],
+            [0, 0, (far+near)/(near-far), (2*far*near)/(near-far)],
+            [0, 0, -1, 0]
+        ])
+    
+    @staticmethod
+    def axonometric(scale=1, angle_x=0, angle_y=0):
+        """Аксонометрическая проекция"""
+        cos_x = math.cos(angle_x)
+        sin_x = math.sin(angle_x)
+        cos_y = math.cos(angle_y)
+        sin_y = math.sin(angle_y)
+        
+        return np.array([
+            [scale*cos_y, scale*sin_x*sin_y, 0, 0],
+            [0, scale*cos_x, 0, 0],
+            [scale*sin_y, -scale*sin_x*cos_y, 0, 0],
+            [0, 0, 0, 1]
+        ])
+
 
 if __name__ == "__main__":
     renderer = PolyhedronRenderer()
