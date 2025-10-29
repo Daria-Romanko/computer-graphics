@@ -788,34 +788,6 @@ class PolyhedronRenderer:
         
         pygame.quit()
 
-class Projection:
-    @staticmethod
-    def perspective(fov=60, aspect=1, near=0.1, far=100):
-        """Перспективная проекция"""
-        f = 1.0 / math.tan(math.radians(fov) / 2)
-        return np.array([
-            [f/aspect, 0, 0, 0],
-            [0, f, 0, 0],
-            [0, 0, (far+near)/(near-far), (2*far*near)/(near-far)],
-            [0, 0, -1, 0]
-        ])
-    
-    @staticmethod
-    def axonometric(scale=1, angle_x=0, angle_y=0):
-        """Аксонометрическая проекция"""
-        cos_x = math.cos(angle_x)
-        sin_x = math.sin(angle_x)
-        cos_y = math.cos(angle_y)
-        sin_y = math.sin(angle_y)
-        
-        return np.array([
-            [scale*cos_y, scale*sin_x*sin_y, 0, 0],
-            [0, scale*cos_x, 0, 0],
-            [scale*sin_y, -scale*sin_x*cos_y, 0, 0],
-            [0, 0, 0, 1]
-        ])
-
-
 if __name__ == "__main__":
     renderer = PolyhedronRenderer()
     renderer.run()
