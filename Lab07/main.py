@@ -2,7 +2,7 @@ import pygame
 import numpy as np
 import math
 import sys
-from common import Point3D, Face, Polyhedron,Octahedron, Dodecahedron, Icosahedron, AffineTransform
+from common import Point3D, Face, Polyhedron, Octahedron, Icosahedron, AffineTransform, OBJLoader
 from surface_of_revolution import SurfaceOfRevolution, RevolutionInputPanel
 
 class PolyhedronRenderer:
@@ -21,11 +21,14 @@ class PolyhedronRenderer:
         
         # Создаем экземпляры всех многогранников
         self.octahedron = Octahedron()
-        self.icosahedron = Icosahedron(0.8)
-        self.dodecahedron = Dodecahedron(0.6)
+        self.icosahedron = Icosahedron()
         
         self.current_polyhedron = self.octahedron
         self.current_polyhedron_name = "octahedron"
+
+        # Добавляем переменные для работы с файлами
+        self.custom_polyhedron = None
+        self.custom_polyhedron_name = "custom"
 
         self.projection_type = "perspective"  # "perspective" или "axonometric"
         self.arbitrary_line_point1 = Point3D(-2, -2, -2)
@@ -36,6 +39,77 @@ class PolyhedronRenderer:
         self.revolution_mode = False
         self.generatrix_points = []
         self.input_panel = RevolutionInputPanel(self.screen)
+
+    def load_custom_model(self, filename):
+        """Загружает пользовательскую модель из файла OBJ"""
+        try:
+            loaded_polyhedron = OBJLoader.load_from_file(filename)
+          
+            if loaded_polyhedron:
+                self.custom_polyhedron = loaded_polyhedron
+                self.current_polyhedron = self.custom_polyhedron
+                self.current_polyhedron_name = "custom"
+                correction_transform = AffineTransform.rotation_y(math.pi / 2)
+                self.current_polyhedron.apply_transform(correction_transform)
+                print(f"Модель загружена из {filename}")
+                
+                return True
+            else:
+                print("Ошибка загрузки модели")
+                return False
+        except Exception as e:
+            print(f"Ошибка при загрузке: {e}")
+            return False
+            
+            
+            
+            
+        
+
+    def save_current_model(self, filename):
+        """Сохраняет текущую модель в файл OBJ"""
+        try:
+            success = OBJLoader.save_to_file(self.current_polyhedron, filename)
+            if success:
+                print(f"Модель сохранена в {filename}")
+            else:
+                print("Ошибка сохранения модели")
+            return success
+        except Exception as e:
+            print(f"Ошибка при сохранении: {e}")
+            return False
+
+    def open_file_dialog(self, mode="load"):
+        """Открывает диалог выбора файла"""
+        import tkinter as tk
+        from tkinter import filedialog, messagebox
+        
+        # Создаем скрытое окно tkinter
+        root = tk.Tk()
+        root.withdraw()
+        
+        try:
+            if mode == "load":
+                filename = filedialog.askopenfilename(
+                    title="Загрузить модель OBJ",
+                    filetypes=[("OBJ files", "*.obj"), ("All files", "*.*")]
+                )
+                if filename:
+                    self.load_custom_model(filename)
+                    
+            elif mode == "save":
+                filename = filedialog.asksaveasfilename(
+                    title="Сохранить модель OBJ",
+                    defaultextension=".obj",
+                    filetypes=[("OBJ files", "*.obj"), ("All files", "*.*")]
+                )
+                if filename:
+                    self.save_current_model(filename)
+                    
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Ошибка работы с файлом: {e}")
+        finally:
+            root.destroy()
 
     def draw_arbitrary_line(self):
         """Рисует произвольную прямую для наглядности"""
@@ -61,9 +135,6 @@ class PolyhedronRenderer:
         elif polyhedron_type == "icosahedron":
             self.current_polyhedron = self.icosahedron
             self.current_polyhedron_name = "icosahedron"
-        elif polyhedron_type == "dodecahedron":
-            self.current_polyhedron = self.dodecahedron
-            self.current_polyhedron_name = "dodecahedron"
         else:
             return
         
@@ -155,12 +226,14 @@ class PolyhedronRenderer:
             info_text = f"Polyhedron: {self.current_polyhedron_name}"
             text_surface = self.font.render(info_text, True, (255, 255, 255))
             self.screen.blit(text_surface, (10, 10))
+            
+            # Обновляем подсказки управления
             controls_lines = [
-                "1-Octahedron 2-Icosahedron 3-Dodecahedron, 4-Revolution",
+                "1-Octahedron 2-Icosahedron, 4-Revolution",
                 "R-Reset T-Translate S-Scale",
                 "X/Y/Z-Rotate M-Mirror C-CenterRot",
                 "L-ArbRot P-Projection A-ShowLine",
-                "Arrows-Camera"
+                "Ctrl+O-Load Ctrl+S-Save Arrows-Camera"  # Обновленная строка
             ]
             small_font = pygame.font.Font(None, 24)
             for i, line in enumerate(controls_lines):
@@ -287,8 +360,6 @@ class PolyhedronRenderer:
                     self.switch_polyhedron("octahedron")
                 elif event.key in [pygame.K_2, pygame.K_KP2]:
                     self.switch_polyhedron("icosahedron")
-                elif event.key in [pygame.K_3, pygame.K_KP3]:
-                    self.switch_polyhedron("dodecahedron")
                 if event.key == pygame.K_4:
                     self.start_revolution_mode()
                     continue
@@ -348,13 +419,21 @@ class PolyhedronRenderer:
                 elif event.key == pygame.K_a:
                     # Показать/скрыть произвольную прямую
                     self.show_arbitrary_line = not self.show_arbitrary_line
+                
+                # Добавляем новые обработчики для загрузки/сохранения
+                if event.key == pygame.K_o:  # Ctrl+O для загрузки
+                    if pygame.key.get_mods() & pygame.KMOD_CTRL:
+                        self.open_file_dialog("load")
+                elif event.key == pygame.K_s:  # Ctrl+S для сохранения
+                    if pygame.key.get_mods() & pygame.KMOD_CTRL:
+                        self.open_file_dialog("save")
         
         # Управление камерой
         keys = pygame.key.get_pressed()
         if keys[pygame.K_LEFT]:
-            self.camera_angle_y -= 0.02
-        if keys[pygame.K_RIGHT]:
             self.camera_angle_y += 0.02
+        if keys[pygame.K_RIGHT]:
+            self.camera_angle_y -= 0.02
         if keys[pygame.K_UP]:
             self.camera_angle_x -= 0.02
         if keys[pygame.K_DOWN]:
