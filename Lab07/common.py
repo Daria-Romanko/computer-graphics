@@ -152,7 +152,7 @@ class Octahedron(Polyhedron):
         
         # Грани октаэдра (8 треугольников) с правильным порядком вершин
         faces = [
-            # Верхние грани
+            # Верхные грани
             Face([vertices[0], vertices[4], vertices[2]], (255, 0, 0)),    # Верх-перед-право
             Face([vertices[0], vertices[2], vertices[5]], (0, 255, 0)),    # Верх-право-зад
             Face([vertices[0], vertices[5], vertices[3]], (0, 0, 255)),    # Верх-зад-лево
@@ -531,3 +531,126 @@ class AffineTransform:
             return np.dot(T2, np.dot(Rx_inv, np.dot(Ry_inv, np.dot(Rz, np.dot(Ry, np.dot(Rx, T1))))))
         else:
             return np.dot(T2, np.dot(Ry_inv, np.dot(Rz, np.dot(Ry, T1))))
+
+                    
+class OBJLoader:
+    @staticmethod
+    def load_from_file(filename, default_color=(255, 255, 255)):
+        """Загружает модель из файла OBJ с автоматическим назначением цветов по направлениям"""
+        vertices = []
+        faces = []
+        
+        try:
+            with open(filename, 'r') as file:
+                lines = file.readlines()
+                
+            # Сначала читаем все вершины
+            for line in lines:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                    
+                parts = line.split()
+                if parts[0] == 'v' and len(parts) >= 4:
+                    x = float(parts[1])
+                    y = float(parts[2])
+                    z = float(parts[3])
+
+                    vertices.append(Point3D(x, -y, z))
+          
+            
+            # Теперь читаем грани
+            for line in lines:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                
+                parts = line.split()
+                if parts[0] == 'f':
+                    face_vertices = []
+                    for part in parts[1:]:
+                        vertex_index = part.split('/')[0]
+                        if vertex_index.isdigit():
+                            idx = int(vertex_index) - 1
+                            if 0 <= idx < len(vertices):
+                                face_vertices.append(vertices[idx])
+                    
+                    if len(face_vertices) >= 3:
+                        # Автоматически определяем цвет по нормали грани
+                        color = OBJLoader._get_face_color(face_vertices)
+                        faces.append(Face(face_vertices, color))
+                    
+            return Polyhedron(faces)
+            
+        except Exception as e:
+            print(f"Ошибка загрузки файла {filename}: {e}")
+            return None
+    
+    @staticmethod
+    def _get_face_color(face_vertices):
+        """Определяет цвет грани по ее нормали"""
+        if len(face_vertices) < 3:
+            return (255, 255, 255)
+        
+        # Вычисляем нормаль
+        v1 = face_vertices[1] - face_vertices[0]
+        v2 = face_vertices[2] - face_vertices[0]
+        normal = v1.cross(v2)
+        normal = normal.normalize()
+        
+        # Цвета для разных направлений
+        if abs(normal.y) > 0.7:  # Верх/низ
+            if normal.y > 0:
+                return (255, 50, 50)    # Красный - верх
+            else:
+                return (50, 255, 255)   # Голубой - низ
+        elif abs(normal.x) > 0.7:  # Лево/право
+            if normal.x > 0:
+                return (50, 255, 50)    # Зеленый - право
+            else:
+                return (50, 50, 255)    # Синий - лево
+        elif abs(normal.z) > 0.7:  # Перед/зад
+            if normal.z > 0:
+                return (255, 255, 50)   # Желтый - перед
+            else:
+                return (255, 50, 255)   # Пурпурный - зад
+        else:
+            # Наклонные грани - оттенки серого
+            brightness = int(128 + normal.y * 64)
+            return (brightness, brightness, brightness)
+            
+    @staticmethod
+    def save_to_file(polyhedron, filename):
+        """Сохраняет многогранник в файл OBJ"""
+        try:
+            with open(filename, 'w') as file:
+                file.write("# Exported from 3D Polyhedra Viewer\n")
+                
+                # Собираем все уникальные вершины
+                all_vertices = []
+                vertex_to_index = {}
+                
+                for face in polyhedron.faces:
+                    for vertex in face.points:
+                        vertex_key = f"{vertex.x:.6f}_{vertex.y:.6f}_{vertex.z:.6f}"
+                        if vertex_key not in vertex_to_index:
+                            all_vertices.append(vertex)
+                            vertex_to_index[vertex_key] = len(all_vertices)
+                
+                # Записываем вершины
+                for vertex in all_vertices:
+                    file.write(f"v {vertex.x:.6f} {vertex.y:.6f} {vertex.z:.6f}\n")
+                
+                # Записываем грани
+                for face in polyhedron.faces:
+                    file.write("f")
+                    for vertex in face.points:
+                        vertex_key = f"{vertex.x:.6f}_{vertex.y:.6f}_{vertex.z:.6f}"
+                        file.write(f" {vertex_to_index[vertex_key]}")
+                    file.write("\n")
+                    
+            return True
+            
+        except Exception as e:
+            print(f"Ошибка сохранения файла {filename}: {e}")
+            return False
