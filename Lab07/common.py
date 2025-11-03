@@ -99,10 +99,17 @@ class Face:
         dot_product = normal.dot(view_vector)
         return dot_product < 0
 
+    def __repr__(self):
+        return f"Face({len(self.points)} points)"
+
 class Polyhedron:
-    def __init__(self, faces):
-        self.faces = faces
+    def __init__(self, faces=None):
+        self.faces = faces if faces else []
+        self.vertices = []
         self.transform_matrix = np.identity(4)
+
+    def add_face(self, face):
+        self.faces.append(face)
     
     def apply_transform(self, transform_matrix):
         self.transform_matrix = np.dot(transform_matrix, self.transform_matrix)
@@ -113,7 +120,13 @@ class Polyhedron:
     def get_transformed_faces(self):
         transformed_faces = []
         for face in self.faces:
-            transformed_face = face.apply_transform(self.transform_matrix)
+            transformed_points = []
+            for point in face.points:
+                point_array = point.to_array()
+                transformed = np.dot(self.transform_matrix, point_array)
+                transformed_point = Point3D(transformed[0], transformed[1], transformed[2])
+                transformed_points.append(transformed_point)
+            transformed_face = Face(transformed_points, face.color)
             transformed_faces.append(transformed_face)
         return transformed_faces
     
@@ -129,14 +142,27 @@ class Polyhedron:
         
         return Point3D(x, y, z)
     
-    def scale_about_center(self, factor):
-        center_point = self.get_center()
-        translate_to_origin = AffineTransform.translation(-center_point.x, -center_point.y, -center_point.z)
-        scale_matrix = AffineTransform.scaling(factor, factor, factor)
-        translate_back = AffineTransform.translation(center_point.x, center_point.y, center_point.z)
-        total_transform = np.dot(translate_back, np.dot(scale_matrix, translate_to_origin))
-        self.apply_transform(total_transform)
-
+    def scale_about_center(self, scale_factor):
+        # Находим центр многогранника
+        if not self.vertices:
+            # Если вершин нет, используем центр граней
+            centers = [face.get_center() for face in self.faces]
+            if not centers:
+                return
+            center_x = sum(p.x for p in centers) / len(centers)
+            center_y = sum(p.y for p in centers) / len(centers)
+            center_z = sum(p.z for p in centers) / len(centers)
+        else:
+            center_x = sum(p.x for p in self.vertices) / len(self.vertices)
+            center_y = sum(p.y for p in self.vertices) / len(self.vertices)
+            center_z = sum(p.z for p in self.vertices) / len(self.vertices)
+        
+        # Масштабирование относительно центра
+        transform = AffineTransform.translation(-center_x, -center_y, -center_z)
+        transform = np.dot(AffineTransform.scaling(scale_factor, scale_factor, scale_factor), transform)
+        transform = np.dot(AffineTransform.translation(center_x, center_y, center_z), transform)
+        
+        self.apply_transform(transform)
 class Octahedron(Polyhedron):
     def __init__(self, size=1):
         # Вершины октаэдра
