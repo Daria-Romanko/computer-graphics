@@ -2,7 +2,7 @@ import pygame
 import numpy as np
 import math
 import sys
-from common import Point3D, Face, Polyhedron, Octahedron, Icosahedron, AffineTransform, OBJLoader
+from common import Point3D, Face, Polyhedron, Octahedron, Icosahedron, AffineTransform, OBJLoader, ZBuffer
 from surface_of_revolution import SurfaceOfRevolution, RevolutionInputPanel
 
 class PolyhedronRenderer:
@@ -40,6 +40,10 @@ class PolyhedronRenderer:
         self.generatrix_points = []
         self.input_panel = RevolutionInputPanel(self.screen)
 
+        # Z-буфер
+        self.use_z_buffer = True  # По умолчанию включен
+        self.z_buffer = ZBuffer(width, height)
+        
     def load_custom_model(self, filename):
         """Загружает пользовательскую модель из файла OBJ"""
         try:
@@ -172,6 +176,55 @@ class PolyhedronRenderer:
         self.camera_angle_y = 0
      
     
+    def draw_with_z_buffer(self, transformed_faces, scene_transform):
+        # Очищаем z-буфер и экран
+        self.z_buffer.clear()
+        self.screen.fill((0, 0, 0))
+        
+        # Определяем, используем ли перспективную коррекцию
+        use_perspective = self.projection_type == "perspective"
+        
+        # Обрабатываем каждую грань
+        for face in transformed_faces:
+            # Преобразуем грань в камерное пространство
+            face_cam = face.apply_transform(scene_transform)
+            
+            # Получаем точки и глубины
+            points_2d = []
+            depths = []
+            
+            for point in face_cam.points:
+                # Проецируем точку на 2D
+                projected = self.project_3d_to_2d(point)
+                points_2d.append(projected)
+                
+                # Вычисляем глубину в камерном пространстве
+                if use_perspective:
+                    # Для перспективы: используем z-координату в камерном пространстве
+                    # (точка уже преобразована scene_transform)
+                    depth = point.z + self.camera_distance
+                else:
+                    # Для аксонометрии: используем z-координату
+                    depth = point.z
+                
+                depths.append(depth)
+            
+            # Рисуем треугольник в z-буфере
+            if len(points_2d) == 3:
+                self.z_buffer.draw_triangle(points_2d, depths, face.color, use_perspective)
+            elif len(points_2d) > 3:
+                # Разбиваем многоугольник на треугольники
+                for i in range(1, len(points_2d) - 1):
+                    triangle_points = [points_2d[0], points_2d[i], points_2d[i + 1]]
+                    triangle_depths = [depths[0], depths[i], depths[i + 1]]
+                    self.z_buffer.draw_triangle(triangle_points, triangle_depths, face.color, use_perspective)
+        
+        # Копируем цветовой буфер на экран
+        pygame.surfarray.blit_array(self.screen, self.z_buffer.color_buffer.swapaxes(0, 1))
+        
+        # Рисуем произвольную линию поверх
+        self.draw_arbitrary_line()
+
     def project_3d_to_2d(self, point):
         if self.projection_type == "perspective":
             # Перспективная проекция
@@ -182,11 +235,14 @@ class PolyhedronRenderer:
             point_array = point.to_array()
             transformed = np.dot(transform, point_array)
             
-            z = transformed[2] + self.camera_distance
-            if z == 0:
-                z = 0.001
-                
-            factor = 200 / z
+            # z в камерном пространстве (положительный = впереди камеры)
+            z_cam = transformed[2] + self.camera_distance
+            
+            # Отсечение объектов позади камеры
+            if z_cam <= 0.1:
+                return (self.width * 10, self.height * 10)  # Выводим за экран
+            
+            factor = 200 / z_cam
             x = transformed[0] * factor + self.width / 2
             y = transformed[1] * factor + self.height / 2
             
@@ -206,67 +262,85 @@ class PolyhedronRenderer:
             
             return (x, y)
 
-
     def draw_polyhedron(self):
+        # Отображаем информацию о режиме
+        mode_text = "Z-buffer" if self.use_z_buffer else "Painter's algorithm"
+        projection_text = "Perspective" if self.projection_type == "perspective" else "Axonometric"
+        info_text = f"{self.current_polyhedron_name} - {projection_text} - {mode_text}"
+        text_surface = self.font.render(info_text, True, (255, 255, 255))
+        self.screen.blit(text_surface, (10, 10))
+        
         if self.revolution_mode:
             self.draw_revolution_mode()
             return
 
-        self.screen.fill((0, 0, 0))
-        transformed_faces = self.current_polyhedron.get_transformed_faces()
-
-        rot_x = AffineTransform.rotation_x(self.camera_angle_x)
-        rot_y = AffineTransform.rotation_y(self.camera_angle_y)
-        scene_transform = np.dot(rot_y, rot_x)
-
-        faces_with_depth = []
-
-        for face in transformed_faces:
-            # Преобразуем грань в камерное пространство
-            face_cam = face.apply_transform(scene_transform)
-            center_cam = face_cam.get_center()
+        # Если используется z-буфер, рисуем с его помощью
+        if self.use_z_buffer:
+            transformed_faces = self.current_polyhedron.get_transformed_faces()
+            rot_x = AffineTransform.rotation_x(self.camera_angle_x)
+            rot_y = AffineTransform.rotation_y(self.camera_angle_y)
+            scene_transform = np.dot(rot_y, rot_x)
             
-            if self.projection_type == "perspective":
-                # Для перспективы: проверка нормалей
-                normal_cam = face_cam.get_normal()
-                camera_in_camera_space = Point3D(0, 0, -self.camera_distance)
-                
-                # Вектор от камеры к центру
-                view_vec = Point3D(
-                    center_cam.x - camera_in_camera_space.x,
-                    center_cam.y - camera_in_camera_space.y,
-                    center_cam.z - camera_in_camera_space.z
-                )
-                
-                length = math.sqrt(view_vec.x**2 + view_vec.y**2 + view_vec.z**2)
-                if length != 0:
-                    view_vec = Point3D(view_vec.x / length, view_vec.y / length, view_vec.z / length)
+            self.draw_with_z_buffer(transformed_faces, scene_transform)
+        else:
+            # Старый метод с сортировкой граней
+            self.screen.fill((0, 0, 0))
+            transformed_faces = self.current_polyhedron.get_transformed_faces()
 
-                dot = normal_cam.dot(view_vec)
-                if dot < 0:
+            rot_x = AffineTransform.rotation_x(self.camera_angle_x)
+            rot_y = AffineTransform.rotation_y(self.camera_angle_y)
+            scene_transform = np.dot(rot_y, rot_x)
+
+            faces_with_depth = []
+
+            for face in transformed_faces:
+                # Преобразуем грань в камерное пространство
+                face_cam = face.apply_transform(scene_transform)
+                center_cam = face_cam.get_center()
+                
+                if self.projection_type == "perspective":
+                    # Для перспективы: проверка нормалей
+                    normal_cam = face_cam.get_normal()
+                    camera_in_camera_space = Point3D(0, 0, -self.camera_distance)
+                    
+                    # Вектор от камеры к центру
+                    view_vec = Point3D(
+                        center_cam.x - camera_in_camera_space.x,
+                        center_cam.y - camera_in_camera_space.y,
+                        center_cam.z - camera_in_camera_space.z
+                    )
+                    
+                    length = math.sqrt(view_vec.x**2 + view_vec.y**2 + view_vec.z**2)
+                    if length != 0:
+                        view_vec = Point3D(view_vec.x / length, view_vec.y / length, view_vec.z / length)
+
+                    dot = normal_cam.dot(view_vec)
+                    if dot < 0:
+                        depth = center_cam.z
+                        faces_with_depth.append((depth, face))
+                else:
+                    # Для аксонометрии: ВСЕ грани видимы, сортируем по глубине
                     depth = center_cam.z
                     faces_with_depth.append((depth, face))
-            else:
-                # Для аксонометрии: ВСЕ грани видимы, сортируем по глубине
-                depth = center_cam.z
-                faces_with_depth.append((depth, face))
 
-        # Сортируем грани по глубине (от дальних к ближним)
-        faces_with_depth.sort(reverse=True, key=lambda x: x[0])
+            # Сортируем грани по глубине (от дальних к ближним)
+            faces_with_depth.sort(reverse=True, key=lambda x: x[0])
 
-        for depth, face in faces_with_depth:
-            points_2d = [self.project_3d_to_2d(p) for p in face.points]
-            if len(points_2d) > 2:
-                try:
-                    pygame.draw.polygon(self.screen, face.color, points_2d)
-                    pygame.draw.polygon(self.screen, (255, 255, 255), points_2d, 1)
-                except:
-                    if len(points_2d) >= 2:
-                        pygame.draw.lines(self.screen, face.color, True, points_2d, 1)
+            for depth, face in faces_with_depth:
+                points_2d = [self.project_3d_to_2d(p) for p in face.points]
+                if len(points_2d) > 2:
+                    try:
+                        pygame.draw.polygon(self.screen, face.color, points_2d)
+                        pygame.draw.polygon(self.screen, (255, 255, 255), points_2d, 1)
+                    except:
+                        if len(points_2d) >= 2:
+                            pygame.draw.lines(self.screen, face.color, True, points_2d, 1)
 
-        self.draw_arbitrary_line()
+            self.draw_arbitrary_line()
 
-        info_text = f"Polyhedron: {self.current_polyhedron_name} ({self.projection_type})"
+        # Отображаем информацию о режиме
+        mode_text = "Z-buffer" if self.use_z_buffer else "Painter's algorithm"
+        info_text = f"Polyhedron: {self.current_polyhedron_name} ({self.projection_type}) - {mode_text}"
         text_surface = self.font.render(info_text, True, (255, 255, 255))
         self.screen.blit(text_surface, (10, 10))
 
@@ -275,7 +349,8 @@ class PolyhedronRenderer:
             "R-Reset T-Translate S-Scale",
             "X/Y/Z-Rotate M/N/B-Mirror",
             "C/L-Rotation P-Projection A-ShowLine",
-            "Ctrl+O-Load Ctrl+S-Save Arrows-Camera"
+            "Ctrl+O-Load Ctrl+S-Save Arrows-Camera",
+            "B-Z-Buffer toggle"
         ]
         small_font = pygame.font.Font(None, 24)
         for i, line in enumerate(controls_lines):
@@ -436,9 +511,9 @@ class PolyhedronRenderer:
                     transform = AffineTransform.reflection_xy()
                     self.current_polyhedron.apply_transform(transform)
                 elif event.key == pygame.K_b:
-                    # Отражение относительно плоскости xz
-                    transform = AffineTransform.reflection_xz()
-                    self.current_polyhedron.apply_transform(transform)
+                    # Переключение режима z-буфера
+                    self.use_z_buffer = not self.use_z_buffer
+                    print(f"Z-buffer: {'enabled' if self.use_z_buffer else 'disabled'}")
                 elif event.key == pygame.K_c:
                     # Вращение вокруг прямой через центр, параллельной оси X
                     transform = AffineTransform.rotation_around_line_through_center(
