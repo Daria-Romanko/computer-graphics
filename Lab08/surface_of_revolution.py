@@ -19,7 +19,7 @@ class SurfaceOfRevolution(Polyhedron):
         angle_step = 2 * math.pi / self.divisions
         profile_count = len(self.generatrix)
 
-        # === 1. Создаём все вершины ===
+        # Создаём все вершины
         for i in range(self.divisions):
             angle = i * angle_step
             rotation_matrix = self._get_rotation_matrix(angle)
@@ -30,7 +30,7 @@ class SurfaceOfRevolution(Polyhedron):
                 rotated_vertex = Point3D.from_array(rotated_arr)
                 vertices.append(rotated_vertex)
 
-        # === 2. Боковые грани ===
+        # Боковые грани
         for i in range(self.divisions):
             next_i = (i + 1) % self.divisions
 
@@ -45,11 +45,11 @@ class SurfaceOfRevolution(Polyhedron):
                 face_color = self._get_color_for_face(i, j)
                 faces.append(Face(face_points, face_color))
 
-        # === 3. Верхняя и нижняя крышки (если профиль начинается/заканчивается не на оси) ===
+        # Верхняя и нижняя крышки
         first_pt = self.generatrix[0]
         last_pt = self.generatrix[-1]
 
-        # Проверяем, близко ли к оси (например, x ≈ 0, если вращаем вокруг Y)
+        # Проверяем, близко ли к оси
         def near_axis(pt):
             if self.axis == 'y':
                 return abs(pt.x) < 1e-6
@@ -59,7 +59,6 @@ class SurfaceOfRevolution(Polyhedron):
                 return abs(pt.x) < 1e-6
             return False
 
-        # === нижняя крышка ===
         if not near_axis(first_pt):
             center_bottom = Point3D(0, first_pt.y, 0)
             bottom_ring = [vertices[i * profile_count + 0] for i in range(self.divisions)]
@@ -69,7 +68,6 @@ class SurfaceOfRevolution(Polyhedron):
                 tri_pts = [center_bottom, bottom_ring[next_i], bottom_ring[i]][::-1]
                 faces.append(Face(tri_pts, (180, 180, 180)))
 
-        # === верхняя крышка ===
         if not near_axis(last_pt):
             center_top = Point3D(0, last_pt.y, 0)
             top_ring = [vertices[i * profile_count + (profile_count - 1)] for i in range(self.divisions)]

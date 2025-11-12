@@ -1,91 +1,6 @@
 import numpy as np
 import math
-
-class ZBuffer:
-    def __init__(self, width, height):
-        self.width = width
-        self.height = height
-        self.buffer = np.full((height, width), np.inf)  # Инициализируем +бесконечностью
-        self.color_buffer = np.zeros((height, width, 3), dtype=np.uint8)
-    
-    def clear(self):
-        self.buffer.fill(np.inf)  # Сбрасываем в +бесконечность
-        self.color_buffer.fill(0)
-    
-    def update(self, x, y, z, color):
-        if 0 <= x < self.width and 0 <= y < self.height:
-            # Для перспективной проекции: чем БЛИЖЕ объект, тем МЕНЬШЕ значение z
-            if z < self.buffer[y, x]:  # Меняем сравнение на <
-                self.buffer[y, x] = z
-                self.color_buffer[y, x] = color
-    
-    def draw_triangle(self, points_2d, depths, color, use_perspective=False):
-        """Корректная реализация z-буфера для треугольников"""
-        if len(points_2d) != 3:
-            return
-        
-        # Находим ограничивающий прямоугольник
-        min_x = max(0, int(min(p[0] for p in points_2d)))
-        max_x = min(self.width - 1, int(max(p[0] for p in points_2d)))
-        min_y = max(0, int(min(p[1] for p in points_2d)))
-        max_y = min(self.height - 1, int(max(p[1] for p in points_2d)))
-        
-        if min_x >= max_x or min_y >= max_y:
-            return
-        
-        # Преобразуем точки в numpy массивы
-        p0 = np.array([points_2d[0][0], points_2d[0][1]])
-        p1 = np.array([points_2d[1][0], points_2d[1][1]])
-        p2 = np.array([points_2d[2][0], points_2d[2][1]])
-        
-        # Вычисляем площадь треугольника для проверки ориентации
-        area = (p1[0] - p0[0]) * (p2[1] - p0[1]) - (p2[0] - p0[0]) * (p1[1] - p0[1])
-        if abs(area) < 1e-10:
-            return
-        
-        # Предварительные вычисления для барицентрических координат
-        v0 = p1 - p0
-        v1 = p2 - p0
-        d00 = np.dot(v0, v0)
-        d01 = np.dot(v0, v1)
-        d11 = np.dot(v1, v1)
-        denom = d00 * d11 - d01 * d01
-        
-        if abs(denom) < 1e-10:
-            return
-        
-        inv_denom = 1.0 / denom
-        
-        # Обрабатываем каждый пиксель в bounding box
-        for y in range(min_y, max_y + 1):
-            for x in range(min_x, max_x + 1):
-                point = np.array([x, y])
-                v2 = point - p0
-                
-                d20 = np.dot(v2, v0)
-                d21 = np.dot(v2, v1)
-                
-                v = (d11 * d20 - d01 * d21) * inv_denom
-                w = (d00 * d21 - d01 * d20) * inv_denom
-                u = 1.0 - v - w
-                
-                # Проверяем, находится ли точка внутри треугольника
-                if u >= -0.001 and v >= -0.001 and w >= -0.001:
-                    if use_perspective:
-                        # Для перспективы: корректная интерполяция с использованием 1/z
-                        z0, z1, z2 = depths
-                        
-                        # Интерполируем 1/z
-                        inv_z = u * (1.0/z0) + v * (1.0/z1) + w * (1.0/z2)
-                        if abs(inv_z) < 1e-10:
-                            continue
-                        z_value = 1.0 / inv_z
-                    else:
-                        # Для аксонометрии: линейная интерполяция z
-                        z_value = u * depths[0] + v * depths[1] + w * depths[2]
-                    
-                    self.update(x, y, z_value, color)
-                    
+       
 class Point3D:
     def __init__(self, x, y, z):
         self.x = x
@@ -126,6 +41,7 @@ class Point3D:
 
     def __str__(self):
         return f"({self.x}, {self.y}, {self.z})"
+
 
 class Face:
     def __init__(self, points, color=(255, 255, 255)):
@@ -191,6 +107,7 @@ class Face:
         dot_product = normal.dot(view_vector)
         return dot_product < 0
 
+
 class Polyhedron:
     def __init__(self, faces):
         self.faces = faces
@@ -229,6 +146,7 @@ class Polyhedron:
         total_transform = np.dot(translate_back, np.dot(scale_matrix, translate_to_origin))
         self.apply_transform(total_transform)
 
+
 class Octahedron(Polyhedron):
     def __init__(self, size=1):
         # Вершины октаэдра
@@ -258,6 +176,7 @@ class Octahedron(Polyhedron):
         ]
         
         super().__init__(faces)
+
 
 class Icosahedron(Polyhedron):
     def __init__(self, size=1):
@@ -298,6 +217,7 @@ class Icosahedron(Polyhedron):
             faces.append(Face(face_points, colors[i % len(colors)]))
         
         super().__init__(faces)
+
 
 class Dodecahedron(Polyhedron):
     def __init__(self, size=1):
@@ -623,212 +543,6 @@ class AffineTransform:
             return np.dot(T2, np.dot(Rx_inv, np.dot(Ry_inv, np.dot(Rz, np.dot(Ry, np.dot(Rx, T1))))))
         else:
             return np.dot(T2, np.dot(Ry_inv, np.dot(Rz, np.dot(Ry, T1))))
-
-
-class Camera:
-    def __init__(self, position=Point3D(0, 0, -5), target=Point3D(0, 0, 0), up_vector=Point3D(0, 1, 0), 
-                 fov=60, aspect_ratio=1.0, near_plane=0.1, far_plane=100.0):
-        self.position = position
-        self.target = target
-        self.up_vector = up_vector
-        self.fov = fov
-        self.aspect_ratio = aspect_ratio
-        self.near_plane = near_plane
-        self.far_plane = far_plane
-        self.view_matrix = None
-        self.projection_matrix = None
-        self.update_matrices()
-    
-    def update_matrices(self):
-        """Обновляет матрицы вида и проекции"""
-        self.view_matrix = self._calculate_view_matrix()
-        self.projection_matrix = self._calculate_projection_matrix()
-    
-    def _calculate_view_matrix(self):
-        """Вычисляет матрицу вида (look-at матрицу)"""
-        # Вектор направления (forward)
-        forward = self.target - self.position
-        forward = forward.normalize()
-        
-        # Вектор вправо (right)
-        right = forward.cross(self.up_vector.normalize())
-        right = right.normalize()
-        
-        # Вектор вверх (up)
-        up = right.cross(forward)
-        up = up.normalize()
-        
-        # Матрица вида
-        view_matrix = np.array([
-            [right.x, right.y, right.z, -right.dot(self.position)],
-            [up.x, up.y, up.z, -up.dot(self.position)],
-            [-forward.x, -forward.y, -forward.z, forward.dot(self.position)],
-            [0, 0, 0, 1]
-        ])
-        
-        return view_matrix
-    
-    def _calculate_projection_matrix(self):
-        """Вычисляет матрицу перспективной проекции"""
-        f = 1.0 / math.tan(math.radians(self.fov) / 2.0)
-        aspect = self.aspect_ratio
-        
-        near, far = self.near_plane, self.far_plane
-        
-        projection_matrix = np.array([
-            [f / aspect, 0, 0, 0],
-            [0, f, 0, 0],
-            [0, 0, (far + near) / (near - far), (2 * far * near) / (near - far)],
-            [0, 0, -1, 0]
-        ])
-        
-        return projection_matrix
-    
-    def set_position(self, position):
-        """Устанавливает позицию камеры"""
-        self.position = position
-        self.update_matrices()
-    
-    def set_target(self, target):
-        """Устанавливает цель камеры"""
-        self.target = target
-        self.update_matrices()
-    
-    def set_fov(self, fov):
-        """Устанавливает поле зрения"""
-        self.fov = fov
-        self.update_matrices()
-    
-    def set_aspect_ratio(self, aspect_ratio):
-        """Устанавливает соотношение сторон"""
-        self.aspect_ratio = aspect_ratio
-        self.update_matrices()
-    
-    def rotate_around_target(self, angle_x, angle_y, distance=None):
-        """Вращает камеру вокруг цели"""
-        if distance is None:
-            distance = (self.target - self.position).length()
-        
-        # Текущие углы (сферические координаты)
-        current_vec = self.position - self.target
-        current_length = current_vec.length()
-        
-        if current_length == 0:
-            return
-            
-        # Нормализуем
-        current_vec = Point3D(
-            current_vec.x / current_length,
-            current_vec.y / current_length, 
-            current_vec.z / current_length
-        )
-        
-        # Вычисляем текущие углы
-        theta = math.acos(current_vec.y)  # угол от оси Y
-        phi = math.atan2(current_vec.z, current_vec.x)  # угол в плоскости XZ
-        
-        # Добавляем новые углы
-        theta = max(0.1, min(math.pi - 0.1, theta + angle_x))
-        phi += angle_y
-        
-        # Новые координаты
-        x = distance * math.sin(theta) * math.cos(phi)
-        y = distance * math.cos(theta)
-        z = distance * math.sin(theta) * math.sin(phi)
-        
-        new_position = Point3D(
-            self.target.x + x,
-            self.target.y + y, 
-            self.target.z + z
-        )
-        
-        self.set_position(new_position)
-    
-    def move_forward(self, distance):
-        """Движение камеры вперед"""
-        direction = self.target - self.position
-        direction = direction.normalize()
-        
-        new_position = Point3D(
-            self.position.x + direction.x * distance,
-            self.position.y + direction.y * distance,
-            self.position.z + direction.z * distance
-        )
-        
-        new_target = Point3D(
-            self.target.x + direction.x * distance,
-            self.target.y + direction.y * distance, 
-            self.target.z + direction.z * distance
-        )
-        
-        self.position = new_position
-        self.target = new_target
-        self.update_matrices()
-    
-    def get_view_projection_matrix(self):
-        """Возвращает комбинированную матрицу вида-проекции"""
-        return np.dot(self.projection_matrix, self.view_matrix)
-    def _calculate_view_matrix(self):
-        """Вычисляет матрицу вида (look-at матрицу)"""
-        # Вектор направления (forward)
-        forward = self.target - self.position
-        forward = forward.normalize()
-        
-        # Вектор вправо (right)
-        right = forward.cross(self.up_vector.normalize())
-        right = right.normalize()
-        
-        # Вектор вверх (up)
-        up = right.cross(forward)
-        up = up.normalize()
-        
-        # МАТРИЦА ВИДА
-        view_matrix = np.array([
-            [right.x, right.y, right.z, -right.dot(self.position)],
-            [up.x, up.y, up.z, -up.dot(self.position)],
-            [-forward.x, -forward.y, -forward.z, forward.dot(self.position)],
-            [0, 0, 0, 1]
-        ])
-        
-        return view_matrix
-    
-    def move_vertical(self, distance):
-        """Движение камеры вертикально"""
-        up_vector = self.up_vector.normalize()
-        new_position = Point3D(
-            self.position.x + up_vector.x * distance,
-            self.position.y + up_vector.y * distance,
-            self.position.z + up_vector.z * distance
-        )
-        new_target = Point3D(
-            self.target.x + up_vector.x * distance,
-            self.target.y + up_vector.y * distance,
-            self.target.z + up_vector.z * distance
-        )
-        self.position = new_position
-        self.target = new_target
-        self.update_matrices()
-
-    def strafe(self, distance):
-        """Боковое движение камеры"""
-        forward = (self.target - self.position).normalize()
-        up = self.up_vector.normalize()
-        right = forward.cross(up).normalize()
-        
-        new_position = Point3D(
-            self.position.x + right.x * distance,
-            self.position.y + right.y * distance,
-            self.position.z + right.z * distance
-        )
-        new_target = Point3D(
-            self.target.x + right.x * distance,
-            self.target.y + right.y * distance,
-            self.target.z + right.z * distance
-        )
-        self.position = new_position
-        self.target = new_target
-        self.update_matrices()
-
 
 
 class OBJLoader:

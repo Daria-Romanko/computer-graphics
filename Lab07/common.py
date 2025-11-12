@@ -163,6 +163,8 @@ class Polyhedron:
         transform = np.dot(AffineTransform.translation(center_x, center_y, center_z), transform)
         
         self.apply_transform(transform)
+
+
 class Octahedron(Polyhedron):
     def __init__(self, size=1):
         # Вершины октаэдра
@@ -192,6 +194,7 @@ class Octahedron(Polyhedron):
         ]
         
         super().__init__(faces)
+
 
 class Icosahedron(Polyhedron):
     def __init__(self, size=1):
@@ -232,6 +235,7 @@ class Icosahedron(Polyhedron):
             faces.append(Face(face_points, colors[i % len(colors)]))
         
         super().__init__(faces)
+
 
 class Dodecahedron(Polyhedron):
     def __init__(self, size=1):
