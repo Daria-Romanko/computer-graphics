@@ -2,7 +2,7 @@ import pygame
 import numpy as np
 import math
 import sys
-from common import Point3D, Face, Polyhedron, Octahedron, Icosahedron, AffineTransform, OBJLoader
+from common import Point3D, Camera, Face, Polyhedron, Octahedron, Icosahedron, AffineTransform, OBJLoader
 from surface_of_revolution import SurfaceOfRevolution, RevolutionInputPanel
 
 class PolyhedronRenderer:
@@ -15,6 +15,15 @@ class PolyhedronRenderer:
         self.clock = pygame.time.Clock()
         self.font = pygame.font.Font(None, 36)
         
+        self.camera = Camera(
+            position=Point3D(0, 0, -5),
+            target=Point3D(0, 0, 0),
+            aspect_ratio=width/height
+        )
+
+        self.camera_rotation_speed = 0.03
+        self.camera_move_speed = 0.1
+
         self.camera_distance = 5
         self.camera_angle_x = 0
         self.camera_angle_y = 0
@@ -40,6 +49,9 @@ class PolyhedronRenderer:
         self.generatrix_points = []
         self.input_panel = RevolutionInputPanel(self.screen)
 
+
+        self.function_mode = False
+        
     def load_custom_model(self, filename):
         """Загружает пользовательскую модель из файла OBJ"""
         try:
@@ -168,31 +180,32 @@ class PolyhedronRenderer:
         
         # Сбрасываем трансформации для нового многогранника
         self.current_polyhedron.reset_transform()
+        # Сбрасываем камеру
+        self.camera.set_position(Point3D(0, 0, -5))
+        self.camera.set_target(Point3D(0, 0, 0))
         self.camera_angle_x = 0
         self.camera_angle_y = 0
-     
+    
     
     def project_3d_to_2d(self, point):
         if self.projection_type == "perspective":
-            # Перспективная проекция
-            rot_x = AffineTransform.rotation_x(self.camera_angle_x)
-            rot_y = AffineTransform.rotation_y(self.camera_angle_y)
-            transform = np.dot(rot_y, rot_x)
+            # ИСПОЛЬЗУЕМ МАТРИЦУ КАМЕРЫ для перспективной проекции
+            view_proj_matrix = self.camera.get_view_projection_matrix()
             
             point_array = point.to_array()
-            transformed = np.dot(transform, point_array)
+            transformed = np.dot(view_proj_matrix, point_array)
             
-            z = transformed[2] + self.camera_distance
-            if z == 0:
-                z = 0.001
-                
-            factor = 200 / z
-            x = transformed[0] * factor + self.width / 2
-            y = transformed[1] * factor + self.height / 2
+            # Перспективное деление
+            if transformed[3] != 0:
+                transformed = transformed / transformed[3]
+            
+            # Преобразуем в координаты экрана [-1,1] -> [0, width/height]
+            x = (transformed[0] + 1) * 0.5 * self.width
+            y = (1 - (transformed[1] + 1) * 0.5) * self.height
             
             return (x, y)
         else:
-            # Аксонометрическая проекция
+            # Аксонометрическая проекция (старый метод для совместимости)
             rot_x = AffineTransform.rotation_x(self.camera_angle_x)
             rot_y = AffineTransform.rotation_y(self.camera_angle_y)
             transform = np.dot(rot_y, rot_x)
@@ -206,7 +219,6 @@ class PolyhedronRenderer:
             
             return (x, y)
 
-
     def draw_polyhedron(self):
         if self.revolution_mode:
             self.draw_revolution_mode()
@@ -215,40 +227,27 @@ class PolyhedronRenderer:
         self.screen.fill((0, 0, 0))
         transformed_faces = self.current_polyhedron.get_transformed_faces()
 
-        rot_x = AffineTransform.rotation_x(self.camera_angle_x)
-        rot_y = AffineTransform.rotation_y(self.camera_angle_y)
-        scene_transform = np.dot(rot_y, rot_x)
-
         faces_with_depth = []
 
         for face in transformed_faces:
-            # Преобразуем грань в камерное пространство
-            face_cam = face.apply_transform(scene_transform)
-            center_cam = face_cam.get_center()
-            
             if self.projection_type == "perspective":
-                # Для перспективы: проверка нормалей
-                normal_cam = face_cam.get_normal()
-                camera_in_camera_space = Point3D(0, 0, -self.camera_distance)
+                # Для перспективы: проверка нормалей относительно камеры
+                center = face.get_center()
+                normal = face.get_normal()
                 
-                # Вектор от камеры к центру
-                view_vec = Point3D(
-                    center_cam.x - camera_in_camera_space.x,
-                    center_cam.y - camera_in_camera_space.y,
-                    center_cam.z - camera_in_camera_space.z
-                )
+                # Вектор от камеры к центру грани
+                view_vector = center - self.camera.position
+                view_vector = view_vector.normalize()
                 
-                length = math.sqrt(view_vec.x**2 + view_vec.y**2 + view_vec.z**2)
-                if length != 0:
-                    view_vec = Point3D(view_vec.x / length, view_vec.y / length, view_vec.z / length)
-
-                dot = normal_cam.dot(view_vec)
-                if dot < 0:
-                    depth = center_cam.z
+                dot = normal.dot(view_vector)
+                if dot < 0:  # Грань видима
+                    # Глубина для сортировки
+                    depth = (center - self.camera.position).length()
                     faces_with_depth.append((depth, face))
             else:
-                # Для аксонометрии: ВСЕ грани видимы, сортируем по глубине
-                depth = center_cam.z
+                # Для аксонометрии: ВСЕ грани видимы
+                center = face.get_center()
+                depth = center.z
                 faces_with_depth.append((depth, face))
 
         # Сортируем грани по глубине (от дальних к ближним)
@@ -266,7 +265,9 @@ class PolyhedronRenderer:
 
         self.draw_arbitrary_line()
 
-        info_text = f"Polyhedron: {self.current_polyhedron_name} ({self.projection_type})"
+        # Отображаем информацию о камере
+        cam_pos = self.camera.position
+        info_text = f"Polyhedron: {self.current_polyhedron_name} | Camera: ({cam_pos.x:.1f}, {cam_pos.y:.1f}, {cam_pos.z:.1f})"
         text_surface = self.font.render(info_text, True, (255, 255, 255))
         self.screen.blit(text_surface, (10, 10))
 
@@ -275,16 +276,16 @@ class PolyhedronRenderer:
             "R-Reset T-Translate S-Scale",
             "X/Y/Z-Rotate M/N/B-Mirror",
             "C/L-Rotation P-Projection A-ShowLine",
-            "Ctrl+O-Load Ctrl+S-Save Arrows-Camera"
+            "WASD-Camera Move Arrows-Camera Rotate",
+            "QE-Camera Up/Down Ctrl+O-Load Ctrl+S-Save" 
         ]
         small_font = pygame.font.Font(None, 24)
         for i, line in enumerate(controls_lines):
             controls_surface = small_font.render(line, True, (255, 255, 255))
-            self.screen.blit(controls_surface, (10, self.height - 150 + i * 25))
+            self.screen.blit(controls_surface, (10, self.height - 180 + i * 25))
 
         self.input_panel.draw()
         pygame.display.flip()
-
     
     def start_revolution_mode(self):
         self.revolution_mode = True
@@ -371,6 +372,7 @@ class PolyhedronRenderer:
         
         return False
     
+    
     def handle_events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -406,6 +408,9 @@ class PolyhedronRenderer:
                     continue
                 elif event.key == pygame.K_r:
                     self.current_polyhedron.reset_transform()
+                    # Сбрасываем камеру
+                    self.camera.set_position(Point3D(0, 0, -5))
+                    self.camera.set_target(Point3D(0, 0, 0))
                     self.camera_angle_x = 0
                     self.camera_angle_y = 0
                 elif event.key == pygame.K_t:
@@ -459,9 +464,9 @@ class PolyhedronRenderer:
                         self.camera_angle_y = math.radians(45)
                     else:
                         self.projection_type = "perspective"
-                        # вернем "фронтальный" вид камеры
-                        self.camera_angle_x = 0
-                        self.camera_angle_y = 0
+                        # Сбрасываем камеру для перспективы
+                        self.camera.set_position(Point3D(0, 0, -5))
+                        self.camera.set_target(Point3D(0, 0, 0))
                 elif event.key == pygame.K_a:
                     # Показать/скрыть произвольную прямую
                     self.show_arbitrary_line = not self.show_arbitrary_line
@@ -476,17 +481,70 @@ class PolyhedronRenderer:
         
         # Управление камерой
         keys = pygame.key.get_pressed()
-        if keys[pygame.K_LEFT]:
-            self.camera_angle_y += 0.02
-        if keys[pygame.K_RIGHT]:
-            self.camera_angle_y -= 0.02
-        if keys[pygame.K_UP]:
-            self.camera_angle_x -= 0.02
-        if keys[pygame.K_DOWN]:
-            self.camera_angle_x += 0.02
+        
+        if self.projection_type == "perspective":
+            # Вращение камеры вокруг цели
+            if keys[pygame.K_LEFT]:
+                self.camera.rotate_around_target(0, -self.camera_rotation_speed)
+            if keys[pygame.K_RIGHT]:
+                self.camera.rotate_around_target(0, self.camera_rotation_speed)
+            if keys[pygame.K_UP]:
+                self.camera.rotate_around_target(-self.camera_rotation_speed, 0)
+            if keys[pygame.K_DOWN]:
+                self.camera.rotate_around_target(self.camera_rotation_speed, 0)
+            
+            # Движение камеры
+            if keys[pygame.K_w]:
+                self.camera.move_forward(self.camera_move_speed)
+            if keys[pygame.K_s]:
+                self.camera.move_forward(-self.camera_move_speed)
+            if keys[pygame.K_q]:
+                # Move up
+                current_distance = (self.camera.target - self.camera.position).length()
+                new_pos = Point3D(
+                    self.camera.position.x,
+                    self.camera.position.y + self.camera_move_speed,
+                    self.camera.position.z
+                )
+                # Сохраняем расстояние до цели при вертикальном движении
+                direction_to_target = (self.camera.target - new_pos).normalize()
+                new_target = Point3D(
+                    new_pos.x + direction_to_target.x * current_distance,
+                    new_pos.y + direction_to_target.y * current_distance,
+                    new_pos.z + direction_to_target.z * current_distance
+                )
+                self.camera.set_position(new_pos)
+                self.camera.set_target(new_target)
+            if keys[pygame.K_e]:
+                # Move down
+                current_distance = (self.camera.target - self.camera.position).length()
+                new_pos = Point3D(
+                    self.camera.position.x,
+                    self.camera.position.y - self.camera_move_speed,
+                    self.camera.position.z
+                )
+                direction_to_target = (self.camera.target - new_pos).normalize()
+                new_target = Point3D(
+                    new_pos.x + direction_to_target.x * current_distance,
+                    new_pos.y + direction_to_target.y * current_distance,
+                    new_pos.z + direction_to_target.z * current_distance
+                )
+                self.camera.set_position(new_pos)
+                self.camera.set_target(new_target)
+        else:
+            # Старое управление для аксонометрии
+            if keys[pygame.K_LEFT]:
+                self.camera_angle_y += 0.02
+            if keys[pygame.K_RIGHT]:
+                self.camera_angle_y -= 0.02
+            if keys[pygame.K_UP]:
+                self.camera_angle_x -= 0.02
+            if keys[pygame.K_DOWN]:
+                self.camera_angle_x += 0.02
         
         return True
-    
+
+
     def run(self):
         running = True
         while running:
