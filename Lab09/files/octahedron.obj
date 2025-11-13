@@ -1,0 +1,19 @@
+# Octahedron with colors for orientation
+v 0.000000 1.000000 0.000000    # Top - Red
+v 0.000000 -1.000000 0.000000   # Bottom - Cyan  
+v 1.000000 0.000000 0.000000    # Right - Green
+v -1.000000 0.000000 0.000000   # Left - Blue
+v 0.000000 0.000000 1.000000    # Front - Yellow
+v 0.000000 0.000000 -1.000000   # Back - Magenta
+
+# Top faces (Red/Yellow/Green)
+f 1 5 3
+f 1 3 6
+f 1 6 4
+f 1 4 5
+
+# Bottom faces (Cyan/Blue/Magenta)  
+f 2 3 5
+f 2 6 3
+f 2 4 6
+f 2 5 4

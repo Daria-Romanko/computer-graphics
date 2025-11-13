@@ -1,0 +1,35 @@
+# Icosahedron - simple colored version matching common.py
+v -0.525731 0.850651 0.000000
+v 0.525731 0.850651 0.000000  
+v -0.525731 -0.850651 0.000000
+v 0.525731 -0.850651 0.000000
+v 0.000000 -0.525731 0.850651
+v 0.000000 0.525731 0.850651
+v 0.000000 -0.525731 -0.850651
+v 0.000000 0.525731 -0.850651
+v 0.850651 0.000000 -0.525731
+v 0.850651 0.000000 0.525731
+v -0.850651 0.000000 -0.525731
+v -0.850651 0.000000 0.525731
+
+# Exact triangles from common.py Icosahedron class
+f 1 12 6    # Red
+f 1 6 2     # Orange  
+f 1 2 8     # Yellow
+f 1 8 11    # Green
+f 1 11 12   # Blue
+f 2 6 10    # Cyan
+f 6 12 5    # Purple
+f 12 11 3   # Pink
+f 11 8 7    # Brown
+f 8 2 9     # Gray
+f 4 10 5    # Dark Red
+f 4 5 3     # Dark Orange
+f 4 3 7     # Dark Yellow
+f 4 7 9     # Dark Green
+f 4 9 10    # Dark Blue
+f 5 10 6    # Dark Cyan
+f 3 5 12    # Dark Purple
+f 7 3 11    # Dark Pink
+f 9 7 8     # Dark Brown
+f 10 9 2    # Dark Gray
