@@ -19,6 +19,8 @@ class PolyhedronRenderer:
         self.clock = pygame.time.Clock()
         self.font = pygame.font.Font(None, 36)
         
+        self.obj_color = (255, 100, 100) #(255, 100, 255) (255, 255, 100)
+
         self.camera = Camera(
             position=Point3D(0, 0, -5),
             target=Point3D(0, 0, 0),
@@ -73,36 +75,12 @@ class PolyhedronRenderer:
                 self.current_polyhedron = self.custom_polyhedron
                 self.current_polyhedron_name = "custom"
 
+                for face in self.current_polyhedron.faces:
+                    face.color = self.obj_color
+                    face.vertex_colors = [self.obj_color] * len(face.points)
+
                 correction_transform = AffineTransform.rotation_y(math.pi / 2)
                 self.current_polyhedron.apply_transform(correction_transform)
-
-                n_faces = len(self.current_polyhedron.faces)
-                for i, face in enumerate(self.current_polyhedron.faces):
-                    hue = (i / n_faces) * 360
-                    saturation = 0.8
-                    value = 0.9
-
-                    h = hue / 60
-                    j = math.floor(h)
-                    f = h - j
-                    p = value * (1 - saturation)
-                    q = value * (1 - saturation * f)
-                    t = value * (1 - saturation * (1 - f))
-
-                    if j == 0:
-                        r, g, b = value, t, p
-                    elif j == 1:
-                        r, g, b = q, value, p
-                    elif j == 2:
-                        r, g, b = p, value, t
-                    elif j == 3:
-                        r, g, b = p, q, value
-                    elif j == 4:
-                        r, g, b = t, p, value
-                    else:
-                        r, g, b = value, p, q
-
-                    face.color = (int(r * 255), int(g * 255), int(b * 255))
 
                 self.reset_camera()
 
