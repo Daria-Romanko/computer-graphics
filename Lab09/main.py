@@ -76,6 +76,8 @@ class PolyhedronRenderer:
         self.texture_renderer = TextureRenderer(self.lighting)
         self.use_texturing = True  # по умолчанию включено
 
+        self.lighting.set_shading_mode("gouraud")  # По умолчанию Гуро
+
     def switch_polyhedron(self, polyhedron_type):
         """Переключение между многогранниками с поддержкой текстурированных"""
         print(f"Attempting to switch to: {polyhedron_type}")
@@ -118,10 +120,14 @@ class PolyhedronRenderer:
                 self.current_polyhedron_name = "cube"
             else:
                 return
+            
+        if self.lighting.use_lighting and self.lighting.shading_mode == "phong":
+            self.lighting.apply_phong_shading(self.current_polyhedron, self.camera.position)
         
         self.current_polyhedron.reset_transform()
         self.reset_camera()
 
+    
     def draw_polyhedron(self):
         if self.revolution_mode:
             self.draw_revolution_mode()
@@ -134,30 +140,47 @@ class PolyhedronRenderer:
         self.screen.fill((0, 0, 0))
         transformed_faces = self.current_polyhedron.get_transformed_faces()
 
-        # Применяем шейдинг Гуро если освещение включено
-        if self.lighting.use_lighting and self.lighting.shading_mode == "gouraud":
-            self.lighting.apply_gouraud_shading(self.current_polyhedron, self.camera.position)
+        # Применяем соответствующий шейдинг
+        if self.lighting.use_lighting:
+            if self.lighting.shading_mode == "gouraud":
+                self.lighting.apply_gouraud_shading(self.current_polyhedron, self.camera.position)
+            elif self.lighting.shading_mode == "phong":
+                # ЗАЩИТА: убедимся, что vertex_normals существуют
+                try:
+                    self.lighting.apply_phong_shading(self.current_polyhedron, self.camera.position)
+                except Exception as e:
+                    print(f"Ошибка применения шейдинга Фонга: {e}")
+                    # Если не получилось, переключимся на Гуро
+                    self.lighting.set_shading_mode("gouraud")
+                    self.lighting.apply_gouraud_shading(self.current_polyhedron, self.camera.position)
 
         if self.use_z_buffer:
             if self.use_texturing:
                 # Отрисовка с текстурированием и Z-буфером
                 self.draw_textured_with_z_buffer(transformed_faces)
+            elif self.lighting.use_lighting and self.lighting.shading_mode == "phong":
+                # Отрисовка с шейдингом Фонга
+                self.lighting.draw_with_phong_shading(
+                    self.screen, transformed_faces, self.project_3d_to_2d, 
+                    self.camera.position, use_zbuffer=True
+                )
             elif self.lighting.use_lighting and self.lighting.shading_mode == "gouraud":
-                # отрисовка с шейдингом Гуро
+                # Отрисовка с шейдингом Гуро
                 self.lighting.draw_with_z_buffer_gouraud(
                     self.screen, transformed_faces, self.project_3d_to_2d, self.camera.position
                 )
             else:
                 self.draw_with_z_buffer(transformed_faces)
         else:
-            # УЛУЧШЕННАЯ отрисовка без Z-буфера
+            # Отрисовка без Z-буфера
             self.draw_without_z_buffer(transformed_faces)
 
         self.draw_arbitrary_line()
         self.draw_ui()
 
+
     def draw_without_z_buffer(self, faces):
-        """Улучшенная отрисовка без Z-буфера"""
+        """Улучшенная отрисовка без Z-буфера с поддержкой шейдинга Фонга"""
         # Собираем все грани с глубиной
         faces_with_depth = []
         
@@ -183,13 +206,38 @@ class PolyhedronRenderer:
             
             if len(points_2d) > 2:
                 try:
-                    # Для текстурированных граней используем специальный рендерер
+                    # Для текстурированных граней
                     if self.use_texturing and hasattr(face, 'texture_coords') and face.texture:
                         self.texture_renderer.draw_textured_face(
                             self.screen, face, self.project_3d_to_2d, self.camera.position,
                             use_zbuffer=False, use_lighting=self.lighting.use_lighting,
                             use_perspective=(self.projection_type == "perspective")
                         )
+                    # Для шейдинга Фонга
+                    elif self.lighting.use_lighting and self.lighting.shading_mode == "phong":
+                        points_3d = face.points
+                        
+                        # ЗАЩИТА: убедимся, что vertex_normals существуют
+                        if not hasattr(face, 'vertex_normals') or len(face.vertex_normals) != len(face.points):
+                            face_normal = face.get_normal()
+                            face.vertex_normals = [face_normal] * len(face.points)
+                        
+                        if len(points_2d) == 3:
+                            self.lighting.draw_triangle_phong_shading(
+                                self.screen, points_2d, points_3d, face.vertex_normals,
+                                face.color, self.camera.position, use_zbuffer=False
+                            )
+                        else:
+                            # Разбиваем многоугольник на треугольники
+                            for i in range(1, len(points_2d) - 1):
+                                tri_points_2d = [points_2d[0], points_2d[i], points_2d[i + 1]]
+                                tri_points_3d = [points_3d[0], points_3d[i], points_3d[i + 1]]
+                                tri_normals = [face.vertex_normals[0], face.vertex_normals[i], face.vertex_normals[i + 1]]
+                                
+                                self.lighting.draw_triangle_phong_shading(
+                                    self.screen, tri_points_2d, tri_points_3d, tri_normals,
+                                    face.color, self.camera.position, use_zbuffer=False
+                                )
                     # Для шейдинга Гуро
                     elif self.lighting.use_lighting and self.lighting.shading_mode == "gouraud":
                         for i in range(1, len(points_2d) - 1):
@@ -204,6 +252,7 @@ class PolyhedronRenderer:
                         pygame.draw.polygon(self.screen, face.color, points_2d)
                         pygame.draw.polygon(self.screen, (255, 255, 255), points_2d, 1)
                 except Exception as e:
+                    print(f"Ошибка отрисовки: {e}")
                     # Резервный вариант для сложных полигонов
                     if len(points_2d) >= 2:
                         pygame.draw.lines(self.screen, face.color, True, points_2d, 1)
@@ -230,7 +279,7 @@ class PolyhedronRenderer:
 
         controls = [
             "1-Octahedron 2-Icosahedron 3-Tetrahedron 4-Cube 5-Dodecahedron",
-            "6-Texture 7-Revolution 8-Function",
+            "6-Texture 7-Revolution 8-Function F-Shading",
             "WASD-Move  Arrows-Rotate  QE-Up/Down", 
             "B-ZBuffer  P-Proj  A-Line  T-Translate",
             "XYZ-Rotate  MN-Mirror  CL-SpecialRot",
@@ -246,6 +295,7 @@ class PolyhedronRenderer:
         self.function_panel.draw()
         pygame.display.flip()
 
+    
     def draw_textured_with_z_buffer(self, faces):
         """Отрисовка текстурированных граней с использованием Z-буфера"""
         self.lighting.z_buffer.clear()
@@ -265,12 +315,44 @@ class PolyhedronRenderer:
             if len(points_2d) >= 3:
                 # Для текстурированных граней
                 if hasattr(face, 'texture_coords') and face.texture:
-                    self.texture_renderer.draw_textured_face(
-                        self.screen, face, self.project_3d_to_2d, self.camera.position,
-                        use_zbuffer=True, z_buffer=self.lighting.z_buffer, 
-                        use_lighting=self.lighting.use_lighting,
-                        use_perspective=(self.projection_type == "perspective")
-                    )
+                    # Если включен шейдинг Фонга для текстурированных объектов
+                    if self.lighting.use_lighting and self.lighting.shading_mode == "phong":
+                        # Используем шейдинг Фонга с текстурами
+                        points_3d = face.points
+                        
+                        # ЗАЩИТА: убедимся, что vertex_normals существуют
+                        if not hasattr(face, 'vertex_normals') or len(face.vertex_normals) != len(face.points):
+                            face_normal = face.get_normal()
+                            face.vertex_normals = [face_normal] * len(face.points)
+                        # Используем шейдинг Фонга с текстурами
+                        points_3d = face.points
+                        if len(points_2d) == 3:
+                            self.lighting.draw_triangle_phong_shading(
+                                self.screen, points_2d, points_3d, face.vertex_normals,
+                                face.color, self.camera.position, use_zbuffer=True,
+                                z_buffer=self.lighting.z_buffer, depths=depths
+                            )
+                        else:
+                            # Разбиваем многоугольник на треугольники
+                            for i in range(1, len(points_2d) - 1):
+                                tri_points_2d = [points_2d[0], points_2d[i], points_2d[i + 1]]
+                                tri_points_3d = [points_3d[0], points_3d[i], points_3d[i + 1]]
+                                tri_normals = [face.vertex_normals[0], face.vertex_normals[i], face.vertex_normals[i + 1]]
+                                tri_depths = [depths[0], depths[i], depths[i + 1]]
+                                
+                                self.lighting.draw_triangle_phong_shading(
+                                    self.screen, tri_points_2d, tri_points_3d, tri_normals,
+                                    face.color, self.camera.position, use_zbuffer=True,
+                                    z_buffer=self.lighting.z_buffer, depths=tri_depths
+                                )
+                    else:
+                        # Стандартное текстурирование с Гуро или без освещения
+                        self.texture_renderer.draw_textured_face(
+                            self.screen, face, self.project_3d_to_2d, self.camera.position,
+                            use_zbuffer=True, z_buffer=self.lighting.z_buffer, 
+                            use_lighting=self.lighting.use_lighting,
+                            use_perspective=(self.projection_type == "perspective")
+                        )
                 else:
                     # Обычная отрисовка без текстурирования
                     if len(points_2d) == 3:
@@ -413,6 +495,13 @@ class PolyhedronRenderer:
                 elif event.key == pygame.K_s:  # Ctrl+S для сохранения
                     if pygame.key.get_mods() & pygame.KMOD_CTRL:
                         self.open_file_dialog("save")
+                elif event.key == pygame.K_f:  # Добавляем переключение шейдинга
+                    if self.lighting.use_lighting:
+                        if self.lighting.shading_mode == "gouraud":
+                            self.lighting.set_shading_mode("phong")
+                        else:
+                            self.lighting.set_shading_mode("gouraud")
+                    return True
         
         # Управление камерой
         keys = pygame.key.get_pressed()
