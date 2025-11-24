@@ -140,7 +140,6 @@ GLuint createShaderProgram(const string& vertexShaderSource, const string& fragm
 int main() {
     setlocale(LC_ALL, "ru");
 
-    // Создаем окно с помощью SFML 3.0
     sf::Window window(sf::VideoMode({ 800, 600 }), "OpenGL with SFML 3.0");
     window.setVerticalSyncEnabled(true);
 
@@ -167,7 +166,7 @@ int main() {
         out vec4 FragColor;
         
         void main() {
-            FragColor = vec4(1.0, 0.5, 0.2, 1.0);
+            FragColor = vec4(0.0, 1.0, 0.0, 1.0); // Зеленый цвет
         }
     )";
 
@@ -189,11 +188,14 @@ int main() {
     }
     cout << "Location атрибута aPos: " << posAttrib << endl;
 
-    // Вершины треугольника
+    // Вершины треугольника с координатами в нормализованном пространстве OpenGL
+    // Правый нижний угол (1.0, -1.0, 0.0)
+    // Левый нижний угол (-1.0, -1.0, 0.0)
+    // Центральная точка на верхней границе (0.0, 1.0, 0.0)
     float vertices[] = {
-        -0.5f, -0.5f, 0.0f,
-         0.5f, -0.5f, 0.0f,
-         0.0f,  0.5f, 0.0f
+         1.0f, -1.0f, 0.0f,  // правый нижний угол
+        -1.0f, -1.0f, 0.0f,  // левый нижний угол
+         0.0f,  1.0f, 0.0f   // центр верхней границы
     };
 
     // Создаем VAO и VBO
@@ -211,7 +213,6 @@ int main() {
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
 
-    // Основной цикл - УПРОЩЕННАЯ ОБРАБОТКА СОБЫТИЙ
     bool running = true;
     while (running) {
         // Обработка событий - простой и надежный способ
@@ -225,8 +226,8 @@ int main() {
             }
         }
 
-        // Очистка экрана
-        glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
+        // Очистка экрана - черный фон
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         // Используем нашу шейдерную программу
