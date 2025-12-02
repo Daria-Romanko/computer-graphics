@@ -7,8 +7,6 @@
 #include <vector>
 #include <optional>
 
-using namespace std::string_literals;  // Для строковых литералов
-
 // Вершинный шейдер
 const char* vertexShaderSource = R"(
 #version 330 core
@@ -93,8 +91,8 @@ void rotateZ(float angle, float* matrix) {
     float cosA = cos(rad);
     float sinA = sin(rad);
 
-    matrix[0] = cosA;  matrix[4] = -sinA; matrix[8] = 0.0f; matrix[12] = 0.0f;
-    matrix[1] = sinA;  matrix[5] = cosA;  matrix[9] = 0.0f; matrix[13] = 0.0f;
+    matrix[0] = cosA;  matrix[4] = -sinA; matrix[8]  = 0.0f; matrix[12] = 0.0f;
+    matrix[1] = sinA;  matrix[5] = cosA;  matrix[9]  = 0.0f; matrix[13] = 0.0f;
     matrix[2] = 0.0f;  matrix[6] = 0.0f;  matrix[10] = 1.0f; matrix[14] = 0.0f;
     matrix[3] = 0.0f;  matrix[7] = 0.0f;  matrix[11] = 0.0f; matrix[15] = 1.0f;
 }
@@ -105,10 +103,10 @@ void rotateX(float angle, float* matrix) {
     float cosA = cos(rad);
     float sinA = sin(rad);
 
-    matrix[0] = 1.0f; matrix[4] = 0.0f;   matrix[8] = 0.0f;    matrix[12] = 0.0f;
-    matrix[1] = 0.0f; matrix[5] = cosA;   matrix[9] = -sinA;   matrix[13] = 0.0f;
-    matrix[2] = 0.0f; matrix[6] = sinA;   matrix[10] = cosA;   matrix[14] = 0.0f;
-    matrix[3] = 0.0f; matrix[7] = 0.0f;   matrix[11] = 0.0f;   matrix[15] = 1.0f;
+    matrix[0] = 1.0f; matrix[4] = 0.0f;   matrix[8]  = 0.0f;    matrix[12] = 0.0f;
+    matrix[1] = 0.0f; matrix[5] = cosA;   matrix[9]  = -sinA;   matrix[13] = 0.0f;
+    matrix[2] = 0.0f; matrix[6] = sinA;   matrix[10] = cosA;    matrix[14] = 0.0f;
+    matrix[3] = 0.0f; matrix[7] = 0.0f;   matrix[11] = 0.0f;    matrix[15] = 1.0f;
 }
 
 // Функция для поворота вокруг оси Y
@@ -117,10 +115,10 @@ void rotateY(float angle, float* matrix) {
     float cosA = cos(rad);
     float sinA = sin(rad);
 
-    matrix[0] = cosA;  matrix[4] = 0.0f; matrix[8] = sinA;  matrix[12] = 0.0f;
-    matrix[1] = 0.0f;  matrix[5] = 1.0f; matrix[9] = 0.0f;  matrix[13] = 0.0f;
-    matrix[2] = -sinA; matrix[6] = 0.0f; matrix[10] = cosA; matrix[14] = 0.0f;
-    matrix[3] = 0.0f;  matrix[7] = 0.0f; matrix[11] = 0.0f; matrix[15] = 1.0f;
+    matrix[0] = cosA;  matrix[4] = 0.0f; matrix[8]  = sinA;  matrix[12] = 0.0f;
+    matrix[1] = 0.0f;  matrix[5] = 1.0f; matrix[9]  = 0.0f;  matrix[13] = 0.0f;
+    matrix[2] = -sinA; matrix[6] = 0.0f; matrix[10] = cosA;  matrix[14] = 0.0f;
+    matrix[3] = 0.0f;  matrix[7] = 0.0f; matrix[11] = 0.0f;  matrix[15] = 1.0f;
 }
 
 // Функция для умножения двух матриц 4x4
@@ -229,16 +227,10 @@ int main() {
     settings.minorVersion = 3;
     settings.attributeFlags = sf::ContextSettings::Core;
 
-    // Создание окна SFML (SFML 3) - ИСПРАВЛЕННЫЙ ВЫЗОВ
+    // Создание окна SFML (SFML 3)
     sf::Window window;
-    
-    // Вариант 1: Без параметра state (рекомендуется)
-    
-    
-    // Или вариант 2: С явным указанием state
     window.create(sf::VideoMode({800u, 600u}), "Gradient Circle with Scaling",
-               sf::Style::Default, sf::State::Windowed, settings);
-    
+                  sf::Style::Default, sf::State::Windowed, settings);
     window.setFramerateLimit(60);
 
     // Активация контекста OpenGL
@@ -256,7 +248,6 @@ int main() {
 
     // Проверка версии OpenGL
     std::cout << "OpenGL версия: " << glGetString(GL_VERSION) << std::endl;
-    
     // Вершины и цвета для тетраэдра
     float tetrahedronVertices[] = {
         // Позиции         // Цвета
@@ -313,12 +304,11 @@ int main() {
     float scaleSpeed = 0.02f;
 
     // Получение location uniform переменных
-    GLint offsetLocation = glGetUniformLocation(shaderProgram, "offset");
+    GLint offsetLocation   = glGetUniformLocation(shaderProgram, "offset");
     GLint rotationLocation = glGetUniformLocation(shaderProgram, "rotation");
-    GLint scaleLocation = glGetUniformLocation(shaderProgram, "scale");
+    GLint scaleLocation    = glGetUniformLocation(shaderProgram, "scale");
 
-    // Исправлено: добавлены операторы || в условии if
-    if (offsetLocation == -1 || rotationLocation == -1 || scaleLocation == -1) {
+    if (offsetLocation == -1  || rotationLocation == -1 || scaleLocation == -1) {
         std::cout << "Не удалось получить location одной из uniform переменных!" << std::endl;
     }
 
@@ -366,16 +356,17 @@ int main() {
             }
             // Нажатие клавиш
             else if (const auto* key = event->getIf<sf::Event::KeyPressed>()) {
-                // Исправлено: убрано неправильное using и используем явное пространство имен
-                
+                using Key = sf::Keyboard::Key;
+
                 // Обработка нажатий клавиш для перемещения
-                if (key->code == sf::Keyboard::Key::W) offset[1] += moveSpeed; // Вверх
-                else if (key->code == sf::Keyboard::Key::S) offset[1] -= moveSpeed; // Вниз
-                else if (key->code == sf::Keyboard::Key::A) offset[0] -= moveSpeed; // Влево
-                else if (key->code == sf::Keyboard::Key::D) offset[0] += moveSpeed; // Вправо
-                else if (key->code == sf::Keyboard::Key::Q) offset[2] -= moveSpeed; // Вглубь
-                else if (key->code == sf::Keyboard::Key::E) offset[2] += moveSpeed; // Наружу
-                else if (key->code == sf::Keyboard::Key::R) {
+                if (key->code == Key::W)       offset[1] += moveSpeed; // Вверх
+                else if (key->code == Key::S)  offset[1] -= moveSpeed; // Вниз
+                else if (key->code == Key::A)  offset[0] -= moveSpeed; // Влево
+                else if (key->code == Key::D)  offset[0] += moveSpeed; // Вправо
+                else if (key->code == Key::Q)  offset[2] -= moveSpeed; // Вглубь
+                else if (key->code == Key::E)  offset[2] += moveSpeed; // Наружу
+
+                else if (key->code == Key::R) {
                     // Сброс позиции и масштаба
                     offset[0] = 0.0f;
                     offset[1] = 0.0f;
@@ -385,13 +376,14 @@ int main() {
                     scale[2] = 1.0f;
                 }
                 // Масштабирование по осям
-                else if (key->code == sf::Keyboard::Key::Num1) scale[0] += scaleSpeed; // Масштаб по X
-                else if (key->code == sf::Keyboard::Key::Num2) scale[0] -= scaleSpeed; // Масштаб по X
-                else if (key->code == sf::Keyboard::Key::Num3) scale[1] += scaleSpeed; // Масштаб по Y
-                else if (key->code == sf::Keyboard::Key::Num4) scale[1] -= scaleSpeed; // Масштаб по Y
-                else if (key->code == sf::Keyboard::Key::Num5) scale[2] += scaleSpeed; // Масштаб по Z
-                else if (key->code == sf::Keyboard::Key::Num6) scale[2] -= scaleSpeed; // Масштаб по Z
-                else if (key->code == sf::Keyboard::Key::Escape) window.close();
+                else if (key->code == Key::Num1) scale[0] += scaleSpeed; // Масштаб по X
+                else if (key->code == Key::Num2) scale[0] -= scaleSpeed; // Масштаб по X
+                else if (key->code == Key::Num3) scale[1] += scaleSpeed; // Масштаб по Y
+                else if (key->code == Key::Num4) scale[1] -= scaleSpeed; // Масштаб по Y
+                else if (key->code == Key::Num5) scale[2] += scaleSpeed; // Масштаб по Z
+                else if (key->code == Key::Num6) scale[2] -= scaleSpeed; // Масштаб по Z
+
+                else if (key->code == Key::Escape) window.close();
             }
             // Изменение размера окна
             else if (const auto* resized = event->getIf<sf::Event::Resized>()) {
