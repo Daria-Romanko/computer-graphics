@@ -4,10 +4,15 @@
 #include <iostream>
 #include <string>
 #include <cmath>
-#include <vector>
-#include <optional>
 
-// Вершинный шейдер
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
+// Вершинный шейдер для тетраэдра
 const char* vertexShaderSource = R"(
 #version 330 core
 layout (location = 0) in vec3 aPos;
@@ -17,426 +22,432 @@ out vec3 ourColor;
 
 uniform vec3 offset;
 uniform mat4 rotation;
-uniform vec3 scale;
 
-void main() {
-    vec3 scaledPos = aPos * scale;
-    gl_Position = rotation * vec4(scaledPos + offset, 1.0);
+void main()
+{
+    gl_Position = rotation * vec4(aPos + offset, 1.0);
     ourColor = aColor;
 }
 )";
 
-// Фрагментный шейдер
+// Фрагментный шейдер для тетраэдра
 const char* fragmentShaderSource = R"(
 #version 330 core
-in vec3 ourColor;
 out vec4 FragColor;
+in vec3 ourColor;
 
-void main() {
+void main()
+{
     FragColor = vec4(ourColor, 1.0);
 }
 )";
 
-// Функция для компиляции шейдера и проверки ошибок
+const char* vertexShaderTexSrc = R"(
+layout (location = 0) in vec3 position;
+layout (location = 2) in vec2 texCoord;
+
+out vec3 color;
+out vec2 TexCoord;
+
+uniform vec3 offset;
+uniform mat4 rotation;
+
+void main()
+{
+    gl_Position = rotation * vec4(position + offset, 1.0);
+    TexCoord = texCoord;
+    color = position + vec3(0.5);
+}
+)";
+
+
+const char* fragmentShaderTexColorSrc = R"(
+in vec3 color;
+in vec2 TexCoord;
+out vec4 FragColor;
+
+uniform sampler2D texture;
+uniform float colorMix;
+
+void main()
+{
+    vec4 gradColor = vec4(color, 1.0);          
+    vec4 texColor = texture(texture, TexCoord);
+    vec4 tinted = texColor * gradColor;        
+
+    FragColor = mix(gradColor, tinted, colorMix);
+}
+)";
+
+
+const char* fragmentShaderTwoTexSrc = R"(
+in vec2 TexCoord;
+out vec4 FragColor;
+
+uniform sampler2D texture1;
+uniform sampler2D texture2;
+uniform float textureMix;
+
+void main()
+{
+    vec4 t1 = texture(texture1, TexCoord);
+    vec4 t2 = texture(texture2, TexCoord);
+    FragColor = mix(t1, t2, textureMix);
+}
+)";
+
+
 GLuint compileShader(GLenum type, const char* source) {
     GLuint shader = glCreateShader(type);
     glShaderSource(shader, 1, &source, nullptr);
     glCompileShader(shader);
 
-    // Проверка на ошибки компиляции
-    GLint success;
+    int success;
+    char infoLog[512];
     glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
     if (!success) {
-        GLchar infoLog[512];
         glGetShaderInfoLog(shader, 512, nullptr, infoLog);
-        std::cout << "Ошибка компиляции шейдера: " << infoLog << std::endl;
-        return 0;
+        std::cout << "Ошибка компиляции шейдера:\n" << infoLog << std::endl;
     }
+
     return shader;
 }
 
-// Функция для создания шейдерной программы
-GLuint createShaderProgram() {
-    GLuint vertexShader = compileShader(GL_VERTEX_SHADER, vertexShaderSource);
-    if (!vertexShader) return 0;
-
-    GLuint fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSource);
-    if (!fragmentShader) return 0;
+GLuint createShaderProgram(const char* vsSource, const char* fsSource) {
+    GLuint vertexShader = compileShader(GL_VERTEX_SHADER, vsSource);
+    GLuint fragmentShader = compileShader(GL_FRAGMENT_SHADER, fsSource);
 
     GLuint shaderProgram = glCreateProgram();
     glAttachShader(shaderProgram, vertexShader);
     glAttachShader(shaderProgram, fragmentShader);
     glLinkProgram(shaderProgram);
 
-    // Проверка на ошибки линковки
-    GLint success;
+    int success;
+    char infoLog[512];
     glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
     if (!success) {
-        GLchar infoLog[512];
         glGetProgramInfoLog(shaderProgram, 512, nullptr, infoLog);
-        std::cout << "Ошибка линковки шейдерной программы: " << infoLog << std::endl;
-        return 0;
+        std::cout << "Ошибка линковки шейдерной программы:\n" << infoLog << std::endl;
     }
 
-    // Удаляем шейдеры после линковки
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
     return shaderProgram;
 }
 
-// Функция для поворота вокруг оси Z
-void rotateZ(float angle, float* matrix) {
-    float rad = angle * 3.14159265f / 180.0f;
-    float cosA = cos(rad);
-    float sinA = sin(rad);
-
-    matrix[0] = cosA;  matrix[4] = -sinA; matrix[8]  = 0.0f; matrix[12] = 0.0f;
-    matrix[1] = sinA;  matrix[5] = cosA;  matrix[9]  = 0.0f; matrix[13] = 0.0f;
-    matrix[2] = 0.0f;  matrix[6] = 0.0f;  matrix[10] = 1.0f; matrix[14] = 0.0f;
-    matrix[3] = 0.0f;  matrix[7] = 0.0f;  matrix[11] = 0.0f; matrix[15] = 1.0f;
-}
-
-// Функция для поворота вокруг оси X
-void rotateX(float angle, float* matrix) {
-    float rad = angle * 3.14159265f / 180.0f;
-    float cosA = cos(rad);
-    float sinA = sin(rad);
-
-    matrix[0] = 1.0f; matrix[4] = 0.0f;   matrix[8]  = 0.0f;    matrix[12] = 0.0f;
-    matrix[1] = 0.0f; matrix[5] = cosA;   matrix[9]  = -sinA;   matrix[13] = 0.0f;
-    matrix[2] = 0.0f; matrix[6] = sinA;   matrix[10] = cosA;    matrix[14] = 0.0f;
-    matrix[3] = 0.0f; matrix[7] = 0.0f;   matrix[11] = 0.0f;    matrix[15] = 1.0f;
-}
-
-// Функция для поворота вокруг оси Y
-void rotateY(float angle, float* matrix) {
-    float rad = angle * 3.14159265f / 180.0f;
-    float cosA = cos(rad);
-    float sinA = sin(rad);
-
-    matrix[0] = cosA;  matrix[4] = 0.0f; matrix[8]  = sinA;  matrix[12] = 0.0f;
-    matrix[1] = 0.0f;  matrix[5] = 1.0f; matrix[9]  = 0.0f;  matrix[13] = 0.0f;
-    matrix[2] = -sinA; matrix[6] = 0.0f; matrix[10] = cosA;  matrix[14] = 0.0f;
-    matrix[3] = 0.0f;  matrix[7] = 0.0f; matrix[11] = 0.0f;  matrix[15] = 1.0f;
-}
-
-// Функция для умножения двух матриц 4x4
-void multiplyMatrices(const float* a, const float* b, float* result) {
-    for (int i = 0; i < 4; ++i) { // строки a
-        for (int j = 0; j < 4; ++j) { // столбцы b
-            result[i * 4 + j] =
-                a[i * 4 + 0] * b[0 * 4 + j] +
-                a[i * 4 + 1] * b[1 * 4 + j] +
-                a[i * 4 + 2] * b[2 * 4 + j] +
-                a[i * 4 + 3] * b[3 * 4 + j];
-        }
-    }
-}
-
-// Функция создания матрицы поворота на основе углов вокруг трех осей
-void createRotationMatrix(float angleX, float angleY, float angleZ, float* matrix) {
-    float rotX[16], rotY[16], rotZ[16], temp[16];
-
-    rotateX(angleX, rotX);
-    rotateY(angleY, rotY);
-    rotateZ(angleZ, rotZ);
-
-    // Сначала умножаем rotY на rotX: temp = rotY * rotX
-    multiplyMatrices(rotY, rotX, temp);
-
-    // Затем умножаем rotZ на temp: matrix = rotZ * temp
-    multiplyMatrices(rotZ, temp, matrix);
-}
-
-// Функция для преобразования HSV в RGB (H в градусах, S и V от 0 до 1)
-void hsvToRgb(float h, float s, float v, float& r, float& g, float& b) {
-    int i = static_cast<int>(h / 60.0f) % 6;
-    float f = (h / 60.0f) - i;
-    float p = v * (1.0f - s);
-    float q = v * (1.0f - f * s);
-    float t = v * (1.0f - (1.0f - f) * s);
-
-    switch (i) {
-    case 0: r = v; g = t; b = p; break;
-    case 1: r = q; g = v; b = p; break;
-    case 2: r = p; g = v; b = t; break;
-    case 3: r = p; g = q; b = v; break;
-    case 4: r = t; g = p; b = v; break;
-    case 5: r = v; g = p; b = q; break;
-    }
-}
-
-// Создание вершин для круга
-void createCircleVertices(std::vector<float>& vertices, std::vector<unsigned int>& indices,
-                         float radius = 0.5f, int segments = 36) {
-    vertices.clear();
-    indices.clear();
-
-    // Центральная вершина круга (центр)
-    vertices.push_back(0.0f); // x
-    vertices.push_back(0.0f); // y
-    vertices.push_back(0.0f); // z (плоский круг в z = 0)
-
-    // Цвет центра (белый)
-    vertices.push_back(1.0f); // r
-    vertices.push_back(1.0f); // g
-    vertices.push_back(1.0f); // b
-
-    // Вершины окружности
-    for (int i = 0; i <= segments; ++i) {
-        float angle = (2.0f * 3.14159265f * i) / segments;
-        float x = radius * cos(angle);
-        float y = radius * sin(angle);
-
-        // HSV: цвет зависит от угла
-        float h = (360.0f * i) / segments;
-        float r, g, b;
-        hsvToRgb(h, 1.0f, 1.0f, r, g, b);
-
-        // Позиция вершины
-        vertices.push_back(x);
-        vertices.push_back(y);
-        vertices.push_back(0.0f); // z
-
-        // Цвет вершины
-        vertices.push_back(r);
-        vertices.push_back(g);
-        vertices.push_back(b);
+GLuint loadTexture(const char* path) {
+    int width, height, nrChannels;
+    stbi_set_flip_vertically_on_load(true);
+    unsigned char* data = stbi_load(path, &width, &height, &nrChannels, 0);
+    if (!data) {
+        std::cout << "Ошибка загрузки текстуры: " << path << std::endl;
+        return 0;
     }
 
-    // Индексы треугольников
-    for (int i = 1; i <= segments; ++i) {
-        indices.push_back(0);      // Центр
-        indices.push_back(i);      // Текущая вершина
-        indices.push_back(i + 1);  // Следующая вершина
-    }
-    // Последний треугольник
-    indices.push_back(0);
-    indices.push_back(segments);
-    indices.push_back(1);
+    GLuint texture;
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+
+    glTexImage2D(GL_TEXTURE_2D, 0, 3, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+    glGenerateMipmap(GL_TEXTURE_2D);
+
+    stbi_image_free(data);
+
+    return texture;
 }
 
 int main() {
-    // Настройки контекста OpenGL для SFML
-    sf::ContextSettings settings;
-    settings.depthBits = 24;
-    settings.stencilBits = 8;
-    settings.antiAliasingLevel = 4;
-    settings.majorVersion = 3;
-    settings.minorVersion = 3;
-    settings.attributeFlags = sf::ContextSettings::Core;
-
-    // Создание окна SFML (SFML 3)
-    sf::Window window;
-    window.create(sf::VideoMode({800u, 600u}), "Gradient Circle with Scaling",
-                  sf::Style::Default, sf::State::Windowed, settings);
+    sf::Window window(sf::VideoMode({ 800, 600 }), "3D figures");
     window.setFramerateLimit(60);
 
-    // Активация контекста OpenGL
-    if (!window.setActive(true)) {
-        std::cout << "Не удалось активировать контекст OpenGL!" << std::endl;
+    glewExperimental = GL_TRUE;
+    if (glewInit() != GLEW_OK) {
+        std::cout << "Ошибка инициализации GLEW!" << std::endl;
         return -1;
     }
 
-    // Инициализация GLEW
-    GLenum err = glewInit();
-    if (GLEW_OK != err) {
-        std::cout << "Ошибка инициализации GLEW: " << glewGetErrorString(err) << std::endl;
-        return -1;
-    }
-
-    // Проверка версии OpenGL
-    std::cout << "OpenGL версия: " << glGetString(GL_VERSION) << std::endl;
-    // Вершины и цвета для тетраэдра
-    float tetrahedronVertices[] = {
-        // Позиции         // Цвета
-         0.0f,  0.5f,  0.0f, 1.0f, 0.0f, 0.0f,  // Вершина 1 (красный)
-        -0.5f, -0.5f,  0.5f, 0.0f, 1.0f, 0.0f,  // Вершина 2 (зелёный)
-         0.5f, -0.5f,  0.5f, 0.0f, 0.0f, 1.0f,  // Вершина 3 (синий)
-         0.0f, -0.5f, -0.5f, 1.0f, 1.0f, 0.0f   // Вершина 4 (желтый)
-    };
-
-    unsigned int tetrahedronIndices[] = {
-        0, 1, 2,  // Лицо перед
-        0, 2, 3,  // Лицо справа
-        0, 3, 1,  // Лицо слева
-        1, 3, 2   // Основание
-    };
-
-    // Создание VAO, VBO и EBO для тетраэдра
-    GLuint tetrahedronVAO, tetrahedronVBO, tetrahedronEBO;
-    glGenVertexArrays(1, &tetrahedronVAO);
-    glGenBuffers(1, &tetrahedronVBO);
-    glGenBuffers(1, &tetrahedronEBO);
-
-    // Привязка VAO для тетраэдра
-    glBindVertexArray(tetrahedronVAO);
-
-    // Копирование вершин в VBO
-    glBindBuffer(GL_ARRAY_BUFFER, tetrahedronVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(tetrahedronVertices), tetrahedronVertices, GL_STATIC_DRAW);
-
-    // Копирование индексов в EBO
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, tetrahedronEBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(tetrahedronIndices), tetrahedronIndices, GL_STATIC_DRAW);
-
-    // Установка атрибутов вершин для тетраэдра
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-
-    // Создание шейдерной программы
-    GLuint shaderProgram = createShaderProgram();
-    if (shaderProgram == 0) {
-        std::cout << "Не удалось создать шейдерную программу!" << std::endl;
-        return -1;
-    }
-
-    // Настройка OpenGL
     glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LESS);
+    glClearDepth(1.f);
 
-    // Переменные для управления
-    float offset[3] = { 0.0f, 0.0f, 0.0f };
-    float moveSpeed = 0.01f;
-    float scale[3] = { 1.0f, 1.0f, 1.0f };  // Масштаб по осям X, Y, Z
-    float scaleSpeed = 0.02f;
+    float vertices[] = {
+        // Позиции         // Цвета
+        -0.5f, -0.5f,  0.0f,  1.0f, 0.0f, 0.0f,  // Красная вершина (передняя)
+         0.5f, -0.5f,  0.0f,  0.0f, 1.0f, 0.0f,  // Зеленая вершина (правая)
+         0.0f, -0.5f,  0.8f,  0.0f, 0.0f, 1.0f,  // Синяя вершина (задняя)
+         0.0f,  0.5f,  0.4f,  1.0f, 1.0f, 0.0f   // Желтая вершина (верхняя)
+    };
 
-    // Получение location uniform переменных
-    GLint offsetLocation   = glGetUniformLocation(shaderProgram, "offset");
-    GLint rotationLocation = glGetUniformLocation(shaderProgram, "rotation");
-    GLint scaleLocation    = glGetUniformLocation(shaderProgram, "scale");
+    unsigned int indices[] = {
+        0, 1, 2,  // Основание
+        0, 1, 3,  // Боковая грань
+        1, 2, 3,  // Боковая грань
+        2, 0, 3   // Боковая грань
+    };
 
-    if (offsetLocation == -1  || rotationLocation == -1 || scaleLocation == -1) {
-        std::cout << "Не удалось получить location одной из uniform переменных!" << std::endl;
-    }
+    GLuint VBO, VAO, EBO;
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glGenBuffers(1, &EBO);
 
-    // Вершины и индексы для круга
-    std::vector<float> circleVertices;
-    std::vector<unsigned int> circleIndices;
-    createCircleVertices(circleVertices, circleIndices, 0.5f, 64);
+    glBindVertexArray(VAO);
 
-    // Создание VBO, VAO и EBO для круга
-    GLuint circleVBO, circleVAO, circleEBO;
-    glGenVertexArrays(1, &circleVAO);
-    glGenBuffers(1, &circleVBO);
-    glGenBuffers(1, &circleEBO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
 
-    // Привязка VAO для круга
-    glBindVertexArray(circleVAO);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
 
-    // Копирование вершин в VBO
-    glBindBuffer(GL_ARRAY_BUFFER, circleVBO);
-    glBufferData(GL_ARRAY_BUFFER, circleVertices.size() * sizeof(float),
-                 circleVertices.data(), GL_STATIC_DRAW);
-
-    // Копирование индексов в EBO
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, circleEBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, circleIndices.size() * sizeof(unsigned int),
-                 circleIndices.data(), GL_STATIC_DRAW);
-
-    // Установка атрибутов вершин для круга
+    // позиция
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
+    // цвет
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
 
-    // Основной цикл
-    float angleX = 0.0f;
-    float angleY = 0.0f;
-    float angleZ = 0.0f;
+    glBindVertexArray(0);
+
+    GLuint shaderProgram = createShaderProgram(vertexShaderSource, fragmentShaderSource);
+    GLuint offsetLocation = glGetUniformLocation(shaderProgram, "offset");
+    GLuint rotationLocation = glGetUniformLocation(shaderProgram, "rotation");
+
+    float cubeVertices[] = {
+        -0.5f,-0.5f, 0.5f,     1.0f,0.0f,0.0f,      0.0f,0.0f,  
+         0.5f,-0.5f, 0.5f,     0.0f,1.0f,0.0f,      1.0f,0.0f,  
+         0.5f, 0.5f, 0.5f,     0.0f,0.0f,1.0f,      1.0f,1.0f,  
+        -0.5f, 0.5f, 0.5f,     1.0f,1.0f,0.0f,      0.0f,1.0f,  
+
+        -0.5f,-0.5f,-0.5f,     1.0f,0.0f,1.0f,      0.0f,0.0f,  
+         0.5f,-0.5f,-0.5f,     0.0f,1.0f,1.0f,      1.0f,0.0f,  
+         0.5f, 0.5f,-0.5f,     0.5f,0.5f,0.5f,      1.0f,1.0f,  
+        -0.5f, 0.5f,-0.5f,     1.0f,0.5f,0.0f,      0.0f,1.0f,  
+
+        -0.5f,-0.5f,-0.5f,     1.0f,0.0f,0.0f,      0.0f,0.0f,  
+        -0.5f,-0.5f, 0.5f,     0.0f,1.0f,0.0f,      1.0f,0.0f,  
+        -0.5f, 0.5f, 0.5f,     0.0f,0.0f,1.0f,      1.0f,1.0f,  
+        -0.5f, 0.5f,-0.5f,     1.0f,1.0f,0.0f,      0.0f,1.0f,  
+
+         0.5f,-0.5f,-0.5f,     1.0f,0.0f,0.0f,      0.0f,0.0f,  
+         0.5f,-0.5f, 0.5f,     0.0f,1.0f,0.0f,      1.0f,0.0f,  
+         0.5f, 0.5f, 0.5f,     0.0f,0.0f,1.0f,      1.0f,1.0f,  
+         0.5f, 0.5f,-0.5f,     1.0f,1.0f,0.0f,      0.0f,1.0f,  
+
+         -0.5f, 0.5f,-0.5f,     1.0f,0.0f,0.0f,      0.0f,0.0f, 
+          0.5f, 0.5f,-0.5f,     0.0f,1.0f,0.0f,      1.0f,0.0f, 
+          0.5f, 0.5f, 0.5f,     0.0f,0.0f,1.0f,      1.0f,1.0f,
+         -0.5f, 0.5f, 0.5f,     1.0f,1.0f,0.0f,      0.0f,1.0f,
+
+         -0.5f,-0.5f,-0.5f,     1.0f,0.0f,0.0f,      0.0f,0.0f,
+          0.5f,-0.5f,-0.5f,     0.0f,1.0f,0.0f,      1.0f,0.0f, 
+          0.5f,-0.5f, 0.5f,     0.0f,0.0f,1.0f,      1.0f,1.0f,  
+         -0.5f,-0.5f, 0.5f,     1.0f,1.0f,0.0f,      0.0f,1.0f   
+    };
+
+    unsigned int cubeIndices[] = {
+        0, 1, 2,  0, 2, 3,
+        4, 5, 6,  4, 6, 7,
+        8, 9,10,  8,10,11,
+        12,13,14, 12,14,15,
+        16,17,18, 16,18,19,
+        20,21,22, 20,22,23
+    };
+
+    GLuint cubeVAO, cubeVBO, cubeEBO;
+    glGenVertexArrays(1, &cubeVAO);
+    glGenBuffers(1, &cubeVBO);
+    glGenBuffers(1, &cubeEBO);
+
+    glBindVertexArray(cubeVAO);
+
+    glBindBuffer(GL_ARRAY_BUFFER, cubeVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(cubeVertices), cubeVertices, GL_STATIC_DRAW);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, cubeEBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(cubeIndices), cubeIndices, GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
+    glEnableVertexAttribArray(2);
+
+    glBindVertexArray(0);
+
+    GLuint shaderTexColor = createShaderProgram(vertexShaderTexSrc, fragmentShaderTexColorSrc);
+    GLuint shaderTwoTex = createShaderProgram(vertexShaderTexSrc, fragmentShaderTwoTexSrc);
+
+    GLuint texColorOffsetLoc = glGetUniformLocation(shaderTexColor, "offset");
+    GLuint texColorMixLoc = glGetUniformLocation(shaderTexColor, "colorMix");
+    GLuint texColorSamplerLoc = glGetUniformLocation(shaderTexColor, "ourTexture");
+    GLuint texColorRotationLoc = glGetUniformLocation(shaderTexColor, "rotation");
+
+    GLuint twoTexOffsetLoc = glGetUniformLocation(shaderTwoTex, "offset");
+    GLuint twoTexMixLoc = glGetUniformLocation(shaderTwoTex, "textureMix");
+    GLuint twoTexSampler1Loc = glGetUniformLocation(shaderTwoTex, "texture1");
+    GLuint twoTexSampler2Loc = glGetUniformLocation(shaderTwoTex, "texture2");
+    GLuint twoTexRotationLoc = glGetUniformLocation(shaderTwoTex, "rotation");
+
+    GLuint texture1 = loadTexture("hamster.jpg");
+    GLuint texture2 = loadTexture("simpson.jpg");
+    GLuint texture3 = loadTexture("grass.jpg");
+
+
+    if (!texture1 || !texture2) {
+        std::cout << "Не удалось загрузить одну или обе текстуры!" << std::endl;
+    }
+
+    float offsets[3][3] = {
+        {0.0f, 0.0f, 0.0f},   // тетраэдр
+        {0.0f, 0.0f, 0.0f},   // куб с текстурой+градиентом
+        {0.0f, 0.0f, 0.0f}    // куб с двумя текстурами
+    };
+
+    float moveSpeed = 0.05f;
+    float colorMix = 0.5f; 
+    float textureMix = 0.5f;  
+    int   currentFigure = 1;   
+
+    glm::mat4 rotation = glm::mat4(1.0f);
+    rotation = glm::rotate(rotation, glm::radians(45.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    rotation = glm::rotate(rotation, glm::radians(30.0f), glm::vec3(1.0f, 0.0f, 0.0f));
 
     while (window.isOpen()) {
-        // Обработка событий (новый API SFML 3)
-        while (const std::optional<sf::Event> event = window.pollEvent()) {
-            // Закрытие окна
-            if (event->is<sf::Event::Closed>()) {
+        for (auto event = window.pollEvent(); event.has_value(); event = window.pollEvent()) {
+            const auto& e = event.value();
+
+            if (e.is<sf::Event::Closed>()) {
                 window.close();
             }
-            // Нажатие клавиш
-            else if (const auto* key = event->getIf<sf::Event::KeyPressed>()) {
-                using Key = sf::Keyboard::Key;
+            else if (const auto* keyEvent = e.getIf<sf::Event::KeyPressed>()) {
 
-                // Обработка нажатий клавиш для перемещения
-                if (key->code == Key::W)       offset[1] += moveSpeed; // Вверх
-                else if (key->code == Key::S)  offset[1] -= moveSpeed; // Вниз
-                else if (key->code == Key::A)  offset[0] -= moveSpeed; // Влево
-                else if (key->code == Key::D)  offset[0] += moveSpeed; // Вправо
-                else if (key->code == Key::Q)  offset[2] -= moveSpeed; // Вглубь
-                else if (key->code == Key::E)  offset[2] += moveSpeed; // Наружу
+                int idx = currentFigure - 1;
 
-                else if (key->code == Key::R) {
-                    // Сброс позиции и масштаба
-                    offset[0] = 0.0f;
-                    offset[1] = 0.0f;
-                    offset[2] = 0.0f;
-                    scale[0] = 1.0f;
-                    scale[1] = 1.0f;
-                    scale[2] = 1.0f;
+                switch (keyEvent->scancode) {
+                    // выбор фигуры
+                case sf::Keyboard::Scancode::Num1:
+                    currentFigure = 1;
+                    break;
+                case sf::Keyboard::Scancode::Num2:
+                    currentFigure = 2;
+                    break;
+                case sf::Keyboard::Scancode::Num3:
+                    currentFigure = 3;
+                    break;
+
+                    // смещения
+                case sf::Keyboard::Scancode::W:
+                    offsets[idx][1] += moveSpeed;
+                    break;
+                case sf::Keyboard::Scancode::S:
+                    offsets[idx][1] -= moveSpeed;
+                    break;
+                case sf::Keyboard::Scancode::A:
+                    offsets[idx][0] -= moveSpeed;
+                    break;
+                case sf::Keyboard::Scancode::D:
+                    offsets[idx][0] += moveSpeed;
+                    break;
+                case sf::Keyboard::Scancode::Q:
+                    offsets[idx][2] += moveSpeed;
+                    break;
+                case sf::Keyboard::Scancode::E:
+                    offsets[idx][2] -= moveSpeed;
+                    break;
+                case sf::Keyboard::Scancode::R:
+                    offsets[idx][0] = offsets[idx][1] = offsets[idx][2] = 0.0f;
+                    break;
+
+                    // смешивание цвета/текстур
+                case sf::Keyboard::Scancode::Up:
+                    if (currentFigure == 2) {
+                        colorMix += 0.05f;
+                        if (colorMix > 1.0f) colorMix = 1.0f;
+                    }
+                    else if (currentFigure == 3) {
+                        textureMix += 0.05f;
+                        if (textureMix > 1.0f) textureMix = 1.0f;
+                    }
+                    break;
+                case sf::Keyboard::Scancode::Down:
+                    if (currentFigure == 2) {
+                        colorMix -= 0.05f;
+                        if (colorMix < 0.0f) colorMix = 0.0f;
+                    }
+                    else if (currentFigure == 3) {
+                        textureMix -= 0.05f;
+                        if (textureMix < 0.0f) textureMix = 0.0f;
+                    }
+                    break;
+
+                default:
+                    break;
                 }
-                // Масштабирование по осям
-                else if (key->code == Key::Num1) scale[0] += scaleSpeed; // Масштаб по X
-                else if (key->code == Key::Num2) scale[0] -= scaleSpeed; // Масштаб по X
-                else if (key->code == Key::Num3) scale[1] += scaleSpeed; // Масштаб по Y
-                else if (key->code == Key::Num4) scale[1] -= scaleSpeed; // Масштаб по Y
-                else if (key->code == Key::Num5) scale[2] += scaleSpeed; // Масштаб по Z
-                else if (key->code == Key::Num6) scale[2] -= scaleSpeed; // Масштаб по Z
-
-                else if (key->code == Key::Escape) window.close();
-            }
-            // Изменение размера окна
-            else if (const auto* resized = event->getIf<sf::Event::Resized>()) {
-                glViewport(
-                    0,
-                    0,
-                    static_cast<GLsizei>(resized->size.x),
-                    static_cast<GLsizei>(resized->size.y)
-                );
             }
         }
 
-        // Очистка экрана
         glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // Использование шейдерной программы
-        glUseProgram(shaderProgram);
+        if (currentFigure == 1) {
+            glUseProgram(shaderProgram);
+            glUniform3f(offsetLocation, offsets[0][0], offsets[0][1], offsets[0][2]);
+            glUniformMatrix4fv(rotationLocation, 1, GL_FALSE, glm::value_ptr(rotation));
 
-        // Передача uniform переменных
-        glUniform3fv(offsetLocation, 1, offset);
-        glUniform3fv(scaleLocation, 1, scale);
+            glBindVertexArray(VAO);
+            glDrawElements(GL_TRIANGLES, 12, GL_UNSIGNED_INT, 0);
+            glBindVertexArray(0);
+        }
+        else if (currentFigure == 2) {
+            glUseProgram(shaderTexColor);
+            glUniformMatrix4fv(texColorRotationLoc, 1, GL_FALSE, glm::value_ptr(rotation));
+            glUniform3f(texColorOffsetLoc, offsets[1][0], offsets[1][1], offsets[1][2]);
+            glUniform1f(texColorMixLoc, colorMix);
 
-        // Создание матрицы поворота
-        float rotationMatrix[16];
-        createRotationMatrix(angleX, angleY, angleZ, rotationMatrix);
-        glUniformMatrix4fv(rotationLocation, 1, GL_FALSE, rotationMatrix);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, texture1);
+            glUniform1i(texColorSamplerLoc, 0);
 
-        // Рисование тетраэдра
-        glBindVertexArray(tetrahedronVAO);
-        glDrawElements(GL_TRIANGLES, 12, GL_UNSIGNED_INT, 0);
+            glBindVertexArray(cubeVAO);
+            glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+            glBindVertexArray(0);
+        }
+        else if (currentFigure == 3) {
+            glUseProgram(shaderTwoTex);
+            glUniformMatrix4fv(twoTexRotationLoc, 1, GL_FALSE, glm::value_ptr(rotation));
+            glUniform3f(twoTexOffsetLoc, offsets[2][0], offsets[2][1], offsets[2][2]);
+            glUniform1f(twoTexMixLoc, textureMix);
 
-        // Рисование круга
-        glBindVertexArray(circleVAO);
-        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(circleIndices.size()), GL_UNSIGNED_INT, 0);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, texture2);
+            glUniform1i(twoTexSampler1Loc, 0);
 
-        // Обновление углов поворота
-        angleX += 0.5f;
-        angleY += 0.3f;
-        angleZ += 0.2f;
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, texture3);
+            glUniform1i(twoTexSampler2Loc, 1);
 
-        // Обновление окна
+            glBindVertexArray(cubeVAO);
+            glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+            glBindVertexArray(0);
+        }
+
         window.display();
     }
 
-    // Очистка ресурсов
-    glDeleteVertexArrays(1, &tetrahedronVAO);
-    glDeleteBuffers(1, &tetrahedronVBO);
-    glDeleteBuffers(1, &tetrahedronEBO);
-    glDeleteVertexArrays(1, &circleVAO);
-    glDeleteBuffers(1, &circleVBO);
-    glDeleteBuffers(1, &circleEBO);
+    glDeleteVertexArrays(1, &VAO);
+    glDeleteBuffers(1, &VBO);
+    glDeleteBuffers(1, &EBO);
+
+    glDeleteVertexArrays(1, &cubeVAO);
+    glDeleteBuffers(1, &cubeVBO);
+    glDeleteBuffers(1, &cubeEBO);
+
     glDeleteProgram(shaderProgram);
+    glDeleteProgram(shaderTexColor);
+    glDeleteProgram(shaderTwoTex);
+
+    glDeleteTextures(1, &texture1);
+    glDeleteTextures(1, &texture2);
 
     return 0;
 }
