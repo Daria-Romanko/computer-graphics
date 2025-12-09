@@ -2,198 +2,23 @@
 #include <SFML/OpenGL.hpp>
 #include <SFML/Graphics.hpp>
 #include <SFML/Window.hpp>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include <glm/gtc/constants.hpp>
 #include <iostream>
 #include <vector>
 #include <fstream>
 #include <cmath>
 #include <cstring>
 #include <cstdint>
-
-struct Vec3 {
-    float x, y, z;
-    Vec3() : x(0), y(0), z(0) {}
-    Vec3(float x, float y, float z) : x(x), y(y), z(z) {}
-
-    Vec3 operator+(const Vec3& other) const {
-        return Vec3(x + other.x, y + other.y, z + other.z);
-    }
-
-    Vec3 operator-(const Vec3& other) const {
-        return Vec3(x - other.x, y - other.y, z - other.z);
-    }
-
-    Vec3 operator*(float scalar) const {
-        return Vec3(x * scalar, y * scalar, z * scalar);
-    }
-
-    float length() const {
-        return std::sqrt(x * x + y * y + z * z);
-    }
-
-    Vec3 normalize() const {
-        float len = length();
-        if (len > 0) {
-            return Vec3(x / len, y / len, z / len);
-        }
-        return Vec3(0, 0, 0);
-    }
-
-    static Vec3 cross(const Vec3& a, const Vec3& b) {
-        return Vec3(
-            a.y * b.z - a.z * b.y,
-            a.z * b.x - a.x * b.z,
-            a.x * b.y - a.y * b.x
-        );
-    }
-
-    static float dot(const Vec3& a, const Vec3& b) {
-        return a.x * b.x + a.y * b.y + a.z * b.z;
-    }
-};
-
-struct Vec2 {
-    float x, y;
-    Vec2() : x(0), y(0) {}
-    Vec2(float x, float y) : x(x), y(y) {}
-};
-
-// Матрица 4x4
-struct Mat4 {
-    float m[16]; // Храним в column-major порядке для OpenGL
-
-    Mat4() {
-        identity();
-    }
-
-    void identity() {
-        std::memset(m, 0, sizeof(m));
-        m[0] = m[5] = m[10] = m[15] = 1.0f;
-    }
-
-    static Mat4 perspective(float fov, float aspect, float znear, float zfar) {
-        Mat4 result;
-        float f = 1.0f / std::tan(fov * 0.5f * 3.14159265f / 180.0f);
-
-        result.m[0] = f / aspect;
-        result.m[1] = 0;
-        result.m[2] = 0;
-        result.m[3] = 0;
-
-        result.m[4] = 0;
-        result.m[5] = f;
-        result.m[6] = 0;
-        result.m[7] = 0;
-
-        result.m[8] = 0;
-        result.m[9] = 0;
-        result.m[10] = (zfar + znear) / (zfar - znear);
-        result.m[11] = -1.0f;
-
-        result.m[12] = 0;
-        result.m[13] = 0;
-        result.m[14] = 2.0f * zfar * znear / (zfar - znear);
-        result.m[15] = 0;
-
-        return result;
-    }
-
-    static Mat4 lookAt(const Vec3& eye, const Vec3& center, const Vec3& up) {
-        Mat4 result;
-
-        Vec3 f = (center - eye).normalize();
-        Vec3 u = up.normalize();
-        Vec3 s = Vec3::cross(f, u).normalize();
-        u = Vec3::cross(s, f);
-
-        result.m[0] = s.x;
-        result.m[1] = u.x;
-        result.m[2] = -f.x;
-        result.m[3] = 0.0f;
-
-        result.m[4] = s.y;
-        result.m[5] = u.y;
-        result.m[6] = -f.y;
-        result.m[7] = 0.0f;
-
-        result.m[8] = s.z;
-        result.m[9] = u.z;
-        result.m[10] = -f.z;
-        result.m[11] = 0.0f;
-
-        result.m[12] = -Vec3::dot(s, eye);
-        result.m[13] = -Vec3::dot(u, eye);
-        result.m[14] = Vec3::dot(f, eye);
-        result.m[15] = 1.0f;
-
-        return result;
-    }
-
-    static Mat4 translate(float x, float y, float z) {
-        Mat4 result;
-        result.identity();
-        result.m[12] = x;
-        result.m[13] = y;
-        result.m[14] = z;
-        return result;
-    }
-
-    static Mat4 scale(float x, float y, float z) {
-        Mat4 result;
-        result.identity();
-        result.m[0] = x;
-        result.m[5] = y;
-        result.m[10] = z;
-        return result;
-    }
-
-    static Mat4 rotateY(float angle) {
-        Mat4 result;
-        result.identity();
-        float c = std::cos(angle);
-        float s = std::sin(angle);
-
-        result.m[0] = c;
-        result.m[2] = s;
-        result.m[8] = -s;
-        result.m[10] = c;
-
-        return result;
-    }
-
-    static Mat4 rotateX(float angle) {
-        Mat4 result;
-        result.identity();
-        float c = std::cos(angle);
-        float s = std::sin(angle);
-
-        result.m[5] = c;
-        result.m[6] = -s;
-        result.m[9] = s;
-        result.m[10] = c;
-
-        return result;
-    }
-
-    Mat4 operator*(const Mat4& other) const {
-        Mat4 result;
-
-        for (int i = 0; i < 4; ++i) {
-            for (int j = 0; j < 4; ++j) {
-                result.m[i * 4 + j] = 0.0f;
-                for (int k = 0; k < 4; ++k) {
-                    result.m[i * 4 + j] += m[i * 4 + k] * other.m[k * 4 + j];
-                }
-            }
-        }
-
-        return result;
-    }
-};
+#include <random>
+#include <sstream>
 
 // Структура для хранения данных модели OBJ
 struct Model {
-    std::vector<Vec3> vertices;
-    std::vector<Vec2> texCoords;
+    std::vector<glm::vec3> vertices;
+    std::vector<glm::vec2> texCoords;
     std::vector<unsigned int> indices;
 
     GLuint vao = 0;
@@ -202,7 +27,7 @@ struct Model {
     GLuint texture = 0;
 
     int indexCount = 0;
-    std::string name; 
+    std::string name;
 };
 
 // Функция для загрузки модели OBJ
@@ -213,21 +38,21 @@ bool LoadOBJModel(const std::string& filename, Model& model) {
         return false;
     }
 
-    std::vector<Vec3> tempVertices;
-    std::vector<Vec2> tempTexCoords;
+    std::vector<glm::vec3> tempVertices;
+    std::vector<glm::vec2> tempTexCoords;
     std::vector<unsigned int> vertexIndices, texIndices;
 
     std::string line;
     while (std::getline(file, line)) {
         if (line.substr(0, 2) == "v ") {
             // Вершина
-            Vec3 vertex;
+            glm::vec3 vertex;
             sscanf_s(line.c_str(), "v %f %f %f", &vertex.x, &vertex.y, &vertex.z);
             tempVertices.push_back(vertex);
         }
         else if (line.substr(0, 3) == "vt ") {
             // Текстурная координата
-            Vec2 texCoord;
+            glm::vec2 texCoord;
             sscanf_s(line.c_str(), "vt %f %f", &texCoord.x, &texCoord.y);
             tempTexCoords.push_back(texCoord);
         }
@@ -274,7 +99,7 @@ bool LoadOBJModel(const std::string& filename, Model& model) {
             model.texCoords.push_back(tempTexCoords[texIndex]);
         }
         else {
-            model.texCoords.push_back(Vec2(0, 0));
+            model.texCoords.push_back(glm::vec2(0, 0));
         }
 
         model.indices.push_back(i);
@@ -326,12 +151,9 @@ GLuint LoadTextureFromFile(const std::string& filename) {
     }
 
     // Получаем данные изображения
-    const std::uint8_t* pixels = image.getPixelsPtr(); // Используем std::uint8_t
+    const std::uint8_t* pixels = image.getPixelsPtr();
     unsigned int width = image.getSize().x;
     unsigned int height = image.getSize().y;
-
-    // Конвертируем из RGBA (формат SFML) в формат, понятный OpenGL
-    // SFML хранит пиксели в RGBA порядке, что совместимо с GL_RGBA
 
     GLuint texture;
     glGenTextures(1, &texture);
@@ -353,6 +175,22 @@ GLuint LoadTextureFromFile(const std::string& filename) {
         << " (" << width << "x" << height << ")" << std::endl;
 
     return texture;
+}
+
+// Функция для загрузки шейдера из файла
+std::string LoadShaderFromFile(const std::string& filename) {
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        std::cout << "Failed to open shader file: " << filename << std::endl;
+        return "";
+    }
+
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    file.close();
+
+    std::cout << "Loaded shader from: " << filename << std::endl;
+    return buffer.str();
 }
 
 // Функция для инициализации модели в OpenGL
@@ -417,39 +255,6 @@ bool InitializeModelGL(Model& model, const std::string& textureFile = "") {
     return true;
 }
 
-// Вершинный шейдер
-const char* vertexShaderSource = R"(
-#version 330 core
-layout (location = 0) in vec3 aPos;
-layout (location = 1) in vec2 aTexCoord;
-
-out vec2 TexCoord;
-
-uniform mat4 model;
-uniform mat4 view;
-uniform mat4 projection;
-
-void main()
-{
-    gl_Position = projection * view * model * vec4(aPos, 1.0);
-    TexCoord = aTexCoord;
-}
-)";
-
-// Фрагментный шейдер
-const char* fragmentShaderSource = R"(
-#version 330 core
-in vec2 TexCoord;
-out vec4 FragColor;
-
-uniform sampler2D texture1;
-
-void main()
-{
-    FragColor = texture(texture1, TexCoord);
-}
-)";
-
 // Компиляция шейдера
 GLuint CompileShader(GLenum type, const char* source) {
     GLuint shader = glCreateShader(type);
@@ -468,10 +273,19 @@ GLuint CompileShader(GLenum type, const char* source) {
     return shader;
 }
 
-// Создание шейдерной программы
-GLuint CreateShaderProgram() {
-    GLuint vertexShader = CompileShader(GL_VERTEX_SHADER, vertexShaderSource);
-    GLuint fragmentShader = CompileShader(GL_FRAGMENT_SHADER, fragmentShaderSource);
+// Создание шейдерной программы из файлов
+GLuint CreateShaderProgramFromFiles(const std::string& vertexShaderFile, const std::string& fragmentShaderFile) {
+    // Загружаем шейдеры из файлов
+    std::string vertexShaderSource = LoadShaderFromFile(vertexShaderFile);
+    std::string fragmentShaderSource = LoadShaderFromFile(fragmentShaderFile);
+
+    if (vertexShaderSource.empty() || fragmentShaderSource.empty()) {
+        std::cout << "Failed to load shader files." << std::endl;
+        return -1;   
+    }
+
+    GLuint vertexShader = CompileShader(GL_VERTEX_SHADER, vertexShaderSource.c_str());
+    GLuint fragmentShader = CompileShader(GL_FRAGMENT_SHADER, fragmentShaderSource.c_str());
 
     if (!vertexShader || !fragmentShader) {
         return 0;
@@ -494,15 +308,70 @@ GLuint CreateShaderProgram() {
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
+    std::cout << "Shader program created successfully" << std::endl;
     return shaderProgram;
 }
 
-// Функция для установки uniform матрицы
-void SetUniformMatrix4(GLuint program, const char* name, const Mat4& matrix) {
-    GLint location = glGetUniformLocation(program, name);
-    if (location != -1) {
-        glUniformMatrix4fv(location, 1, GL_FALSE, matrix.m);
+// Функция для создания простой цилиндрической модели (заглушка)
+Model CreateCylinderModel(float radius, float height, int segments, const std::string& name) {
+    Model model;
+    model.name = name;
+
+    // Вершины для цилиндрической модели
+    for (int j = 0; j <= segments; j++) {
+        float angle = 2.0f * 3.14159265f * j / segments;
+        float x = radius * cos(angle);
+        float z = radius * sin(angle);
+
+        // Верхнее кольцо
+        model.vertices.push_back(glm::vec3(x, height / 2, z));
+        // Нижнее кольцо
+        model.vertices.push_back(glm::vec3(x, -height / 2, z));
+
+        // Текстурные координаты
+        model.texCoords.push_back(glm::vec2(j / (float)segments, 0));
+        model.texCoords.push_back(glm::vec2(j / (float)segments, 1));
     }
+
+    // Индексы для боковой поверхности
+    for (int j = 0; j < segments; j++) {
+        int base = j * 2;
+        model.indices.push_back(base);
+        model.indices.push_back(base + 1);
+        model.indices.push_back(base + 2);
+
+        model.indices.push_back(base + 1);
+        model.indices.push_back(base + 3);
+        model.indices.push_back(base + 2);
+    }
+
+    // Верхняя и нижняя крышки
+    int centerTop = model.vertices.size();
+    model.vertices.push_back(glm::vec3(0, height / 2, 0));
+    model.texCoords.push_back(glm::vec2(0.5, 0.5));
+
+    int centerBottom = model.vertices.size();
+    model.vertices.push_back(glm::vec3(0, -height / 2, 0));
+    model.texCoords.push_back(glm::vec2(0.5, 0.5));
+
+    for (int j = 0; j < segments; j++) {
+        int v1 = j * 2;
+        int v2 = ((j + 1) % segments) * 2;
+
+        // Верхняя крышка
+        model.indices.push_back(centerTop);
+        model.indices.push_back(v1);
+        model.indices.push_back(v2);
+
+        // Нижняя крышка
+        model.indices.push_back(centerBottom);
+        model.indices.push_back(v1 + 1);
+        model.indices.push_back(v2 + 1);
+    }
+
+    model.indexCount = model.indices.size();
+
+    return model;
 }
 
 int main() {
@@ -519,9 +388,11 @@ int main() {
     // Настраиваем OpenGL
     glEnable(GL_DEPTH_TEST);
 
-    // Создаем шейдерную программу
-    GLuint shaderProgram = CreateShaderProgram();
+    // Создаем шейдерную программу из файлов
+    std::cout << "\n=== Loading shaders ===" << std::endl;
+    GLuint shaderProgram = CreateShaderProgramFromFiles("vert.txt", "frag.txt");
     if (!shaderProgram) {
+        std::cerr << "Failed to create shader program" << std::endl;
         return -1;
     }
 
@@ -536,69 +407,14 @@ int main() {
         }
         else {
             std::cout << "Failed to initialize central oil drum model" << std::endl;
-            centralOilDrum = Model(); // Сброс модели
+            centralOilDrum = Model();
         }
     }
     else {
         std::cout << "Failed to load oil-drum_col.obj. Creating placeholder..." << std::endl;
-        // Создаем простую модель бочки-заглушки
-        int segments = 16;
-        float radius = 1.0f;
-        float height = 2.0f;
 
-        // Вершины для цилиндрической бочки
-        for (int j = 0; j <= segments; j++) {
-            float angle = 2.0f * 3.14159265f * j / segments;
-            float x = radius * cos(angle);
-            float z = radius * sin(angle);
-
-            // Верхнее кольцо
-            centralOilDrum.vertices.push_back(Vec3(x, height / 2, z));
-            // Нижнее кольцо
-            centralOilDrum.vertices.push_back(Vec3(x, -height / 2, z));
-
-            // Текстурные координаты
-            centralOilDrum.texCoords.push_back(Vec2(j / (float)segments, 0));
-            centralOilDrum.texCoords.push_back(Vec2(j / (float)segments, 1));
-        }
-
-        // Индексы для боковой поверхности
-        for (int j = 0; j < segments; j++) {
-            int base = j * 2;
-            centralOilDrum.indices.push_back(base);
-            centralOilDrum.indices.push_back(base + 1);
-            centralOilDrum.indices.push_back(base + 2);
-
-            centralOilDrum.indices.push_back(base + 1);
-            centralOilDrum.indices.push_back(base + 3);
-            centralOilDrum.indices.push_back(base + 2);
-        }
-
-        // Верхняя и нижняя крышки
-        int centerTop = centralOilDrum.vertices.size();
-        centralOilDrum.vertices.push_back(Vec3(0, height / 2, 0));
-        centralOilDrum.texCoords.push_back(Vec2(0.5, 0.5));
-
-        int centerBottom = centralOilDrum.vertices.size();
-        centralOilDrum.vertices.push_back(Vec3(0, -height / 2, 0));
-        centralOilDrum.texCoords.push_back(Vec2(0.5, 0.5));
-
-        for (int j = 0; j < segments; j++) {
-            int v1 = j * 2;
-            int v2 = ((j + 1) % segments) * 2;
-
-            // Верхняя крышка
-            centralOilDrum.indices.push_back(centerTop);
-            centralOilDrum.indices.push_back(v1);
-            centralOilDrum.indices.push_back(v2);
-
-            // Нижняя крышка
-            centralOilDrum.indices.push_back(centerBottom);
-            centralOilDrum.indices.push_back(v1 + 1);
-            centralOilDrum.indices.push_back(v2 + 1);
-        }
-
-        centralOilDrum.indexCount = centralOilDrum.indices.size();
+        // Создаем простую модель бочки-заглушки с использованием GLM
+        centralOilDrum = CreateCylinderModel(1.0f, 2.0f, 16, "Placeholder Oil Drum");
 
         // Инициализируем с текстурой
         if (InitializeModelGL(centralOilDrum, "oil-drum_col_texture.jpg")) {
@@ -614,6 +430,7 @@ int main() {
     std::vector<Model> fireExtinguisherModels;
 
     std::cout << "\n=== Loading fire extinguisher models ===" << std::endl;
+
     // Загружаем 5 экземпляров модели огнетушителя (из одного файла)
     for (int i = 0; i < 5; i++) {
         Model fireExtinguisher;
@@ -632,67 +449,8 @@ int main() {
             std::cout << "Failed to load fire_extinguisher.obj. Creating placeholder model..." << std::endl;
 
             // Создаем простую цилиндрическую модель огнетушителя
-            Model placeholder;
-            placeholder.name = "Placeholder Fire Extinguisher " + std::to_string(i + 1);
-
-            // Создаем простой цилиндр
-            int segments = 12;
-            float radius = 0.3f;
-            float height = 1.5f;
-
-            // Вершины
-            for (int j = 0; j <= segments; j++) {
-                float angle = 2.0f * 3.14159265f * j / segments;
-                float x = radius * cos(angle);
-                float z = radius * sin(angle);
-
-                // Верхнее кольцо
-                placeholder.vertices.push_back(Vec3(x, height / 2, z));
-                // Нижнее кольцо
-                placeholder.vertices.push_back(Vec3(x, -height / 2, z));
-
-                // Текстурные координаты
-                placeholder.texCoords.push_back(Vec2(j / (float)segments, 0));
-                placeholder.texCoords.push_back(Vec2(j / (float)segments, 1));
-            }
-
-            // Индексы для боковой поверхности
-            for (int j = 0; j < segments; j++) {
-                int base = j * 2;
-                placeholder.indices.push_back(base);
-                placeholder.indices.push_back(base + 1);
-                placeholder.indices.push_back(base + 2);
-
-                placeholder.indices.push_back(base + 1);
-                placeholder.indices.push_back(base + 3);
-                placeholder.indices.push_back(base + 2);
-            }
-
-            // Верхняя и нижняя крышки
-            int centerTop = placeholder.vertices.size();
-            placeholder.vertices.push_back(Vec3(0, height / 2, 0));
-            placeholder.texCoords.push_back(Vec2(0.5, 0.5));
-
-            int centerBottom = placeholder.vertices.size();
-            placeholder.vertices.push_back(Vec3(0, -height / 2, 0));
-            placeholder.texCoords.push_back(Vec2(0.5, 0.5));
-
-            for (int j = 0; j < segments; j++) {
-                int v1 = j * 2;
-                int v2 = ((j + 1) % segments) * 2;
-
-                // Верхняя крышка
-                placeholder.indices.push_back(centerTop);
-                placeholder.indices.push_back(v1);
-                placeholder.indices.push_back(v2);
-
-                // Нижняя крышка
-                placeholder.indices.push_back(centerBottom);
-                placeholder.indices.push_back(v1 + 1);
-                placeholder.indices.push_back(v2 + 1);
-            }
-
-            placeholder.indexCount = placeholder.indices.size();
+            Model placeholder = CreateCylinderModel(0.3f, 1.5f, 12,
+                "Placeholder Fire Extinguisher " + std::to_string(i + 1));
 
             // Инициализируем с текстурой
             if (InitializeModelGL(placeholder, "fire_extinguisher_texture.jpg")) {
@@ -703,40 +461,45 @@ int main() {
 
     if (fireExtinguisherModels.empty()) {
         std::cerr << "Failed to create fire extinguisher models" << std::endl;
-        // Не выходим, потому что у нас есть центральная модель
     }
 
     // Создаем 100+ "планет" (огнетушителей) с разными позициями
     const int NUM_PLANETS = 100;
-    std::vector<Vec3> planetPositions;
+    std::vector<glm::vec3> planetPositions;
     std::vector<float> planetRotations;
     std::vector<int> planetModelIndices;
+
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<float> angleDist(0.0f, 2.0f * 3.14159265f);
+    std::uniform_real_distribution<float> heightDist(-2.0f, 2.0f);
+    std::uniform_int_distribution<int> modelIndexDist(0, fireExtinguisherModels.empty() ? 0 : fireExtinguisherModels.size() - 1);
 
     for (int i = 0; i < NUM_PLANETS; i++) {
         // Случайные позиции в эллиптических орбитах вокруг центральной бочки
         float radius = 8.0f + (i % 15) * 1.5f;
-        float angle = (i * 137.5f) * 3.14159265f / 180.0f;
-        float height = std::sin(i * 0.3f) * 2.0f;
+        float angle = angleDist(gen);
+        float height = heightDist(gen);
 
-        planetPositions.push_back(Vec3(
+        planetPositions.push_back(glm::vec3(
             radius * std::cos(angle),
             height,
             radius * std::sin(angle)
         ));
 
         planetRotations.push_back(0.0f);
-        if (!fireExtinguisherModels.empty()) {
-            planetModelIndices.push_back(i % fireExtinguisherModels.size());
-        }
-        else {
-            planetModelIndices.push_back(0);
-        }
+        planetModelIndices.push_back(fireExtinguisherModels.empty() ? 0 : modelIndexDist(gen));
     }
 
     std::cout << "\n=== Starting simulation ===" << std::endl;
     std::cout << "Central object: Oil Drum" << std::endl;
     std::cout << "Orbiting objects: " << NUM_PLANETS << " fire extinguishers" << std::endl;
     std::cout << "Close window or press ESC to exit" << std::endl;
+
+    // Получаем uniform-локации
+    GLuint modelLoc = glGetUniformLocation(shaderProgram, "model");
+    GLuint viewLoc = glGetUniformLocation(shaderProgram, "view");
+    GLuint projectionLoc = glGetUniformLocation(shaderProgram, "projection");
 
     // Основной цикл
     sf::Clock clock;
@@ -764,25 +527,33 @@ int main() {
         // Используем шейдерную программу
         glUseProgram(shaderProgram);
 
-        // Настраиваем матрицы вида и проекции
+        // Настраиваем матрицы вида и проекции с использованием GLM
         float time = clock.getElapsedTime().asSeconds();
 
         // Камера вращается вокруг всей сцены
         float cameraRadius = 30.0f;
-        Vec3 cameraPos(
+        glm::vec3 cameraPos(
             cameraRadius * std::sin(time * 0.08f),
             8.0f,
             cameraRadius * std::cos(time * 0.08f)
         );
 
         // Камера смотрит на центральную бочку
-        Vec3 center(0, 0, 0);
-        Mat4 view = Mat4::lookAt(cameraPos, center, Vec3(0, 1, 0));
-        Mat4 projection = Mat4::perspective(45.0f, 800.0f / 600.0f, 0.1f, 200.0f);
+        glm::vec3 center(0, 0, 0);
+        glm::vec3 up(0, 1, 0);
+
+        // Создаем view и projection матрицы с помощью GLM
+        glm::mat4 view = glm::lookAt(cameraPos, center, up);
+        glm::mat4 projection = glm::perspective(
+            glm::radians(45.0f),  // FOV
+            800.0f / 600.0f,      // Aspect ratio
+            0.1f,                 // Near plane
+            200.0f                // Far plane
+        );
 
         // Устанавливаем view и projection матрицы
-        SetUniformMatrix4(shaderProgram, "view", view);
-        SetUniformMatrix4(shaderProgram, "projection", projection);
+        glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
+        glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
 
         // === РИСУЕМ ЦЕНТРАЛЬНУЮ БОЧКУ ===
         if (centralOilDrum.vao != 0) {
@@ -793,26 +564,23 @@ int main() {
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, centralOilDrum.texture);
 
-            // Создаем трансформацию для центральной бочки
-            Mat4 modelMat;
+            // Создаем трансформацию для центральной бочки с использованием GLM
+            glm::mat4 modelMat = glm::mat4(1.0f);
 
             // Бочка стоит в центре
-            modelMat = Mat4::translate(0, -1.0f, 0);
+            modelMat = glm::translate(modelMat, glm::vec3(0, -1.0f, 0));
 
             // Медленное вращение бочки вокруг своей оси
-            Mat4 rotation = Mat4::rotateY(time * 0.2f);
-            modelMat = rotation * modelMat;
+            modelMat = glm::rotate(modelMat, time * 0.2f, glm::vec3(0, 1, 0));
 
             // Масштаб бочки (больше, чем огнетушители)
-            Mat4 scale = Mat4::scale(2.0f, 2.0f, 2.0f);
-            modelMat = modelMat * scale;
+            modelMat = glm::scale(modelMat, glm::vec3(2.0f, 2.0f, 2.0f));
 
             // Устанавливаем матрицу model
-            SetUniformMatrix4(shaderProgram, "model", modelMat);
+            glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(modelMat));
 
             // Рисуем модель
-            glDrawElements(GL_TRIANGLES, centralOilDrum.indexCount,
-                GL_UNSIGNED_INT, 0);
+            glDrawElements(GL_TRIANGLES, centralOilDrum.indexCount, GL_UNSIGNED_INT, 0);
         }
 
         // === РИСУЕМ 5 БЛИЖАЙШИХ ОГНЕТУШИТЕЛЕЙ (ВНУТРЕННЯЯ ОРБИТА) ===
@@ -826,33 +594,33 @@ int main() {
                     glActiveTexture(GL_TEXTURE0);
                     glBindTexture(GL_TEXTURE_2D, fireExtinguisherModels[modelIndex].texture);
 
-                    // Создаем трансформацию для этого экземпляра
-                    Mat4 modelMat;
+                    // Создаем трансформацию для этого экземпляра с использованием GLM
+                    glm::mat4 modelMat = glm::mat4(1.0f);
 
                     // Позиционируем экземпляр по кругу (ближняя орбита вокруг бочки)
-                    float angle = (instance * 72.0f + modelIndex * 36.0f) * 3.14159265f / 180.0f;
+                    float angle = (instance * 72.0f + modelIndex * 36.0f) * glm::pi<float>() / 180.0f;
                     float radius = 5.0f; // Ближе к центру
 
-                    modelMat = Mat4::translate(
+                    glm::vec3 position(
                         radius * std::cos(angle + time * 0.5f),
                         0,
                         radius * std::sin(angle + time * 0.5f)
                     );
 
+                    // Устанавливаем позицию
+                    modelMat = glm::translate(modelMat, position);
+
                     // Вращение вокруг своей оси
-                    Mat4 rotation = Mat4::rotateY(time * 1.0f + instance * 0.3f);
-                    modelMat = rotation * modelMat;
+                    modelMat = glm::rotate(modelMat, time * 1.0f + instance * 0.3f, glm::vec3(0, 1, 0));
 
                     // Масштаб (больше для ближних моделей)
-                    Mat4 scale = Mat4::scale(0.8f, 0.8f, 0.8f);
-                    modelMat = modelMat * scale;
+                    modelMat = glm::scale(modelMat, glm::vec3(0.8f, 0.8f, 0.8f));
 
                     // Устанавливаем матрицу model
-                    SetUniformMatrix4(shaderProgram, "model", modelMat);
+                    glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(modelMat));
 
                     // Рисуем модель
-                    glDrawElements(GL_TRIANGLES, fireExtinguisherModels[modelIndex].indexCount,
-                        GL_UNSIGNED_INT, 0);
+                    glDrawElements(GL_TRIANGLES, fireExtinguisherModels[modelIndex].indexCount, GL_UNSIGNED_INT, 0);
                 }
             }
         }
@@ -872,34 +640,32 @@ int main() {
                 // Обновляем вращение
                 planetRotations[i] += 0.005f * (i % 10 + 1);
 
-                // Создаем трансформацию для планеты
-                Mat4 modelMat;
+                // Создаем трансформацию для планеты с использованием GLM
+                glm::mat4 modelMat = glm::mat4(1.0f);
 
                 // Позиция (орбитальное движение вокруг центральной бочки)
                 float orbitSpeed = 0.01f * ((i % 7) + 1);
-                Vec3 pos = planetPositions[i];
+                glm::vec3 pos = planetPositions[i];
 
                 // Преобразуем позицию через матрицу орбиты
                 float x = pos.x * std::cos(time * orbitSpeed) - pos.z * std::sin(time * orbitSpeed);
                 float z = pos.x * std::sin(time * orbitSpeed) + pos.z * std::cos(time * orbitSpeed);
 
-                modelMat = Mat4::translate(x, pos.y, z);
+                // Устанавливаем позицию
+                modelMat = glm::translate(modelMat, glm::vec3(x, pos.y, z));
 
                 // Вращение вокруг своей оси
-                Mat4 rotation = Mat4::rotateY(planetRotations[i]);
-                modelMat = rotation * modelMat;
+                modelMat = glm::rotate(modelMat, planetRotations[i], glm::vec3(0, 1, 0));
 
                 // Масштаб (случайный размер для разнообразия)
                 float scaleFactor = 0.15f + 0.08f * (i % 10);
-                Mat4 scale = Mat4::scale(scaleFactor, scaleFactor, scaleFactor);
-                modelMat = modelMat * scale;
+                modelMat = glm::scale(modelMat, glm::vec3(scaleFactor, scaleFactor, scaleFactor));
 
                 // Устанавливаем матрицу model
-                SetUniformMatrix4(shaderProgram, "model", modelMat);
+                glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(modelMat));
 
                 // Рисуем модель
-                glDrawElements(GL_TRIANGLES, fireExtinguisherModels[modelIndex].indexCount,
-                    GL_UNSIGNED_INT, 0);
+                glDrawElements(GL_TRIANGLES, fireExtinguisherModels[modelIndex].indexCount, GL_UNSIGNED_INT, 0);
             }
         }
 
@@ -932,6 +698,7 @@ int main() {
     std::cout << "Cleaned up " << fireExtinguisherModels.size() << " fire extinguisher models" << std::endl;
 
     glDeleteProgram(shaderProgram);
+    std::cout << "Cleaned up shader program" << std::endl;
 
     std::cout << "Program terminated successfully" << std::endl;
 
