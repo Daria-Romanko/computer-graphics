@@ -1,8 +1,11 @@
 #include <GL/glew.h>
-#include <GLFW/glfw3.h>
+#include <SFML/OpenGL.hpp>
+#include <SFML/Graphics.hpp>
+#include <SFML/Window.hpp>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <glm/gtc/constants.hpp>
 #include <iostream>
 #include <vector>
 #include <fstream>
@@ -11,109 +14,127 @@
 #include <cstdint>
 #include <random>
 #include <sstream>
-#include <algorithm>
 
-// ================== КЛАСС КАМЕРЫ ==================
-class Camera {
-private:
-    glm::vec3 position;
-    glm::vec3 front;
-    glm::vec3 up;
-    glm::vec3 right;
-    glm::vec3 worldUp;
+enum Camera_Movement {
+    FORWARD,
+    BACKWARD,
+    LEFT,
+    RIGHT,
+    UP,
+    DOWN,
+    ROTATE_LEFT,
+    ROTATE_RIGHT
+};
 
-    float yaw;      // Поворот влево-вправо
-    float pitch;    // Поворот вверх-вниз
+const float YAW = -90.0f;
+const float PITCH = 0.0f;
+const float SPEED = 5.0f;
+const float SENSITIVITY = 0.1f;
+const float ZOOM = 45.0f;
 
-    float movementSpeed;
-    float mouseSensitivity;
-    float zoom;
-
+class Camera
+{
 public:
-    Camera(glm::vec3 startPosition = glm::vec3(0.0f, 0.0f, 10.0f),
-           glm::vec3 startUp = glm::vec3(0.0f, 1.0f, 0.0f),
-           float startYaw = -90.0f,
-           float startPitch = 0.0f)
-        : position(startPosition)
-        , worldUp(startUp)
-        , yaw(startYaw)
-        , pitch(startPitch)
-        , movementSpeed(5.0f)
-        , mouseSensitivity(0.1f)
-        , zoom(45.0f) {
+    glm::vec3 Position;
+    glm::vec3 Front;
+    glm::vec3 Up;
+    glm::vec3 Right;
+    glm::vec3 WorldUp;
+
+    float Yaw;
+    float Pitch;
+
+    float MovementSpeed;
+    float MouseSensitivity;
+    float Zoom;
+
+    Camera(glm::vec3 position = glm::vec3(0.0f, 5.0f, 20.0f),
+        glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f),
+        float yaw = YAW,
+        float pitch = PITCH)
+        : Front(glm::vec3(0.0f, 0.0f, -1.0f)),
+        MovementSpeed(SPEED),
+        MouseSensitivity(SENSITIVITY),
+        Zoom(ZOOM)
+    {
+        Position = position;
+        WorldUp = up;
+        Yaw = yaw;
+        Pitch = pitch;
         updateCameraVectors();
     }
 
-    glm::mat4 getViewMatrix() const {
-        return glm::lookAt(position, position + front, up);
+    glm::mat4 GetViewMatrix() const
+    {
+        return glm::lookAt(Position, Position + Front, Up);
     }
 
-    float getZoom() const { return zoom; }
-    void setZoom(float value) { zoom = glm::clamp(value, 1.0f, 90.0f); }
-    
-    glm::vec3 getPosition() const { return position; }
-    glm::vec3 getFront() const { return front; }
+    void ProcessKeyboard(Camera_Movement direction, float deltaTime)
+    {
+        float velocity = MovementSpeed * deltaTime;
+        if (direction == FORWARD)
+            Position += Front * velocity;
+        if (direction == BACKWARD)
+            Position -= Front * velocity;
+        if (direction == LEFT)
+            Position -= Right * velocity;
+        if (direction == RIGHT)
+            Position += Right * velocity;
+        if (direction == UP)
+            Position += Up * velocity;
+        if (direction == DOWN)
+            Position -= Up * velocity;
 
-    void processKeyboard(int key, float deltaTime) {
-        float velocity = movementSpeed * deltaTime;
-        
-        switch (key) {
-            case GLFW_KEY_W:
-                position += front * velocity;
-                break;
-            case GLFW_KEY_S:
-                position -= front * velocity;
-                break;
-            case GLFW_KEY_A:
-                position -= right * velocity;
-                break;
-            case GLFW_KEY_D:
-                position += right * velocity;
-                break;
-            case GLFW_KEY_SPACE:
-                position += worldUp * velocity;
-                break;
-            case GLFW_KEY_LEFT_SHIFT:
-                position -= worldUp * velocity;
-                break;
-        }
+        float rotationSpeed = 50.0f;
+        if (direction == ROTATE_LEFT)
+            Yaw -= rotationSpeed * deltaTime;
+        if (direction == ROTATE_RIGHT)
+            Yaw += rotationSpeed * deltaTime;
+        updateCameraVectors();
     }
 
-    void processMouseMovement(float xoffset, float yoffset, bool constrainPitch = true) {
-        xoffset *= mouseSensitivity;
-        yoffset *= mouseSensitivity;
+    void ProcessMouseMovement(float xoffset, float yoffset, bool constrainPitch = true)
+    {
+        xoffset *= MouseSensitivity;
+        yoffset *= MouseSensitivity;
 
-        yaw += xoffset;
-        pitch += yoffset;
+        Yaw += xoffset;
+        Pitch += yoffset;
 
-        if (constrainPitch) {
-            if (pitch > 89.0f) pitch = 89.0f;
-            if (pitch < -89.0f) pitch = -89.0f;
+        if (constrainPitch)
+        {
+            if (Pitch > 89.0f)
+                Pitch = 89.0f;
+            if (Pitch < -89.0f)
+                Pitch = -89.0f;
         }
 
         updateCameraVectors();
     }
 
-    void processMouseScroll(float yoffset) {
-        zoom -= yoffset;
-        if (zoom < 1.0f) zoom = 1.0f;
-        if (zoom > 90.0f) zoom = 90.0f;
+    void ProcessMouseScroll(float yoffset)
+    {
+        Zoom -= yoffset;
+        if (Zoom < 1.0f)
+            Zoom = 1.0f;
+        if (Zoom > 90.0f)
+            Zoom = 90.0f;
     }
 
 private:
-    void updateCameraVectors() {
-        glm::vec3 newFront;
-        newFront.x = cos(glm::radians(yaw)) * cos(glm::radians(pitch));
-        newFront.y = sin(glm::radians(pitch));
-        newFront.z = sin(glm::radians(yaw)) * cos(glm::radians(pitch));
-        front = glm::normalize(newFront);
+    void updateCameraVectors()
+    {
+        glm::vec3 front;
+        front.x = cos(glm::radians(Yaw)) * cos(glm::radians(Pitch));
+        front.y = sin(glm::radians(Pitch));
+        front.z = sin(glm::radians(Yaw)) * cos(glm::radians(Pitch));
+        Front = glm::normalize(front);
 
-        right = glm::normalize(glm::cross(front, worldUp));
-        up = glm::normalize(glm::cross(right, front));
+        Right = glm::normalize(glm::cross(Front, WorldUp));
+        Up = glm::normalize(glm::cross(Right, Front));
     }
 };
 
-// ================== СТРУКТУРА МОДЕЛИ ==================
 struct Model {
     std::vector<glm::vec3> vertices;
     std::vector<glm::vec2> texCoords;
@@ -128,7 +149,6 @@ struct Model {
     std::string name;
 };
 
-// ================== ФУНКЦИИ ДЛЯ ЗАГРУЗКИ ==================
 bool LoadOBJModel(const std::string& filename, Model& model) {
     std::ifstream file(filename);
     if (!file.is_open()) {
@@ -144,19 +164,17 @@ bool LoadOBJModel(const std::string& filename, Model& model) {
     while (std::getline(file, line)) {
         if (line.substr(0, 2) == "v ") {
             glm::vec3 vertex;
-            if (sscanf(line.c_str(), "v %f %f %f", &vertex.x, &vertex.y, &vertex.z) == 3) {
-                tempVertices.push_back(vertex);
-            }
+            sscanf_s(line.c_str(), "v %f %f %f", &vertex.x, &vertex.y, &vertex.z);
+            tempVertices.push_back(vertex);
         }
         else if (line.substr(0, 3) == "vt ") {
             glm::vec2 texCoord;
-            if (sscanf(line.c_str(), "vt %f %f", &texCoord.x, &texCoord.y) == 2) {
-                tempTexCoords.push_back(texCoord);
-            }
+            sscanf_s(line.c_str(), "vt %f %f", &texCoord.x, &texCoord.y);
+            tempTexCoords.push_back(texCoord);
         }
         else if (line.substr(0, 2) == "f ") {
             unsigned int vertexIndex[3], texIndex[3];
-            int matches = sscanf(line.c_str(), "f %d/%d %d/%d %d/%d",
+            int matches = sscanf_s(line.c_str(), "f %d/%d %d/%d %d/%d",
                 &vertexIndex[0], &texIndex[0],
                 &vertexIndex[1], &texIndex[1],
                 &vertexIndex[2], &texIndex[2]);
@@ -168,7 +186,7 @@ bool LoadOBJModel(const std::string& filename, Model& model) {
                 }
             }
             else {
-                matches = sscanf(line.c_str(), "f %d// %d// %d//",
+                matches = sscanf_s(line.c_str(), "f %d// %d// %d//",
                     &vertexIndex[0], &vertexIndex[1], &vertexIndex[2]);
                 if (matches == 3) {
                     for (int i = 0; i < 3; i++) {
@@ -210,23 +228,42 @@ bool LoadOBJModel(const std::string& filename, Model& model) {
 }
 
 GLuint LoadTextureFromFile(const std::string& filename) {
-    // Простая заглушка для текстуры
-    std::cout << "Loading texture: " << filename << std::endl;
-    
-    const int width = 64;
-    const int height = 64;
-    std::uint8_t pixels[width * height * 4];
+    sf::Image image;
+    if (!image.loadFromFile(filename)) {
+        std::cout << "Failed to load texture: " << filename << std::endl;
 
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            int index = (y * width + x) * 4;
-            // Простой паттерн для теста
-            pixels[index] = (x * 4) % 256;     // R
-            pixels[index + 1] = (y * 4) % 256; // G
-            pixels[index + 2] = ((x + y) * 2) % 256; // B
-            pixels[index + 3] = 255;           // A
+        const int width = 64;
+        const int height = 64;
+        std::uint8_t pixels[width * height * 4];
+
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                int index = (y * width + x) * 4;
+
+                pixels[index] = 220 + (rand() % 35);
+                pixels[index + 1] = 20 + (rand() % 30);
+                pixels[index + 2] = 20 + (rand() % 30);
+                pixels[index + 3] = 255;
+            }
         }
+
+        GLuint texture;
+        glGenTextures(1, &texture);
+        glBindTexture(GL_TEXTURE_2D, texture);
+
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+        return texture;
     }
+
+    const std::uint8_t* pixels = image.getPixelsPtr();
+    unsigned int width = image.getSize().x;
+    unsigned int height = image.getSize().y;
 
     GLuint texture;
     glGenTextures(1, &texture);
@@ -234,10 +271,15 @@ GLuint LoadTextureFromFile(const std::string& filename) {
 
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
 
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+    glGenerateMipmap(GL_TEXTURE_2D);
+
+    std::cout << "Loaded texture: " << filename
+        << " (" << width << "x" << height << ")" << std::endl;
 
     return texture;
 }
@@ -295,7 +337,12 @@ bool InitializeModelGL(Model& model, const std::string& textureFile = "") {
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
 
-    model.texture = LoadTextureFromFile(textureFile);
+    if (!textureFile.empty()) {
+        model.texture = LoadTextureFromFile(textureFile);
+    }
+    else {
+        model.texture = LoadTextureFromFile("default_texture.jpg");
+    }
 
     glBindVertexArray(0);
 
@@ -324,37 +371,8 @@ GLuint CreateShaderProgramFromFiles(const std::string& vertexShaderFile, const s
     std::string fragmentShaderSource = LoadShaderFromFile(fragmentShaderFile);
 
     if (vertexShaderSource.empty() || fragmentShaderSource.empty()) {
-        std::cout << "Failed to load shader files. Using default shaders." << std::endl;
-        
-        // Простые шейдеры по умолчанию
-        vertexShaderSource = R"(
-            #version 330 core
-            layout (location = 0) in vec3 aPos;
-            layout (location = 1) in vec2 aTexCoord;
-            
-            out vec2 TexCoord;
-            
-            uniform mat4 model;
-            uniform mat4 view;
-            uniform mat4 projection;
-            
-            void main() {
-                gl_Position = projection * view * model * vec4(aPos, 1.0);
-                TexCoord = aTexCoord;
-            }
-        )";
-        
-        fragmentShaderSource = R"(
-            #version 330 core
-            in vec2 TexCoord;
-            out vec4 FragColor;
-            
-            uniform sampler2D texture1;
-            
-            void main() {
-                FragColor = texture(texture1, TexCoord);
-            }
-        )";
+        std::cout << "Failed to load shader files." << std::endl;
+        return -1;
     }
 
     GLuint vertexShader = CompileShader(GL_VERTEX_SHADER, vertexShaderSource.c_str());
@@ -438,60 +456,12 @@ Model CreateCylinderModel(float radius, float height, int segments, const std::s
     return model;
 }
 
-// Глобальные переменные для обратных вызовов GLFW
-Camera camera(glm::vec3(0.0f, 5.0f, 20.0f));
-bool firstMouse = true;
-float lastX = 400.0f;
-float lastY = 300.0f;
-
-void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
-    if (firstMouse) {
-        lastX = xpos;
-        lastY = ypos;
-        firstMouse = false;
-    }
-
-    float xoffset = xpos - lastX;
-    float yoffset = lastY - ypos; // обратный порядок для Y
-    lastX = xpos;
-    lastY = ypos;
-
-    camera.processMouseMovement(xoffset, yoffset);
-}
-
-void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
-    camera.processMouseScroll(yoffset);
-}
-
-// ================== ГЛАВНАЯ ФУНКЦИЯ ==================
 int main() {
-    // Инициализация GLFW
-    if (!glfwInit()) {
-        std::cerr << "Failed to initialize GLFW" << std::endl;
-        return -1;
-    }
+    sf::Window window(sf::VideoMode({ 800, 600 }), "Solar System with Interactive Camera", sf::Style::Default);
+    window.setFramerateLimit(60);
 
-    // Настройка GLFW
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-    glfwWindowHint(GLFW_SAMPLES, 4); // MSAA
-
-    // Создание окна
-    GLFWwindow* window = glfwCreateWindow(800, 600, "Solar System with Interactive Camera", NULL, NULL);
-    if (!window) {
-        std::cerr << "Failed to create GLFW window" << std::endl;
-        glfwTerminate();
-        return -1;
-    }
-
-    glfwMakeContextCurrent(window);
-    glfwSetCursorPosCallback(window, mouse_callback);
-    glfwSetScrollCallback(window, scroll_callback);
-
-    // Захват мыши
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    window.setMouseCursorVisible(false);
+    window.setMouseCursorGrabbed(true);
 
     // Инициализируем GLEW
     glewExperimental = GL_TRUE;
@@ -500,11 +470,16 @@ int main() {
         return -1;
     }
 
-    // Настраиваем OpenGL
     glEnable(GL_DEPTH_TEST);
-    glEnable(GL_MULTISAMPLE);
 
-    // Загружаем шейдеры
+    Camera camera(glm::vec3(0.0f, 5.0f, 20.0f));
+
+    // Переменные для управления мышью
+    bool firstMouse = true;
+    sf::Vector2i lastMousePos(400, 300);
+    sf::Mouse::setPosition({ 400, 300 }, window);
+
+    // Создаем шейдерную программу
     std::cout << "\n=== Loading shaders ===" << std::endl;
     GLuint shaderProgram = CreateShaderProgramFromFiles("vert.txt", "frag.txt");
     if (!shaderProgram) {
@@ -591,11 +566,12 @@ int main() {
 
     std::cout << "\n=== Starting simulation ===" << std::endl;
     std::cout << "Camera Controls:" << std::endl;
-    std::cout << "  WASD - Move forward/backward/left/right" << std::endl;
+    std::cout << "  W/S - Move forward/backward" << std::endl;
+    std::cout << "  A/D - Move left/right" << std::endl;
     std::cout << "  Space/Shift - Move up/down" << std::endl;
     std::cout << "  Mouse - Look around" << std::endl;
+    std::cout << "  Mouse Wheel - Zoom in/out" << std::endl;
     std::cout << "  ESC - Exit" << std::endl;
-    std::cout << "\nClose window or press ESC to exit" << std::endl;
 
     // Получаем uniform-локации
     GLuint modelLoc = glGetUniformLocation(shaderProgram, "model");
@@ -603,34 +579,68 @@ int main() {
     GLuint projectionLoc = glGetUniformLocation(shaderProgram, "projection");
 
     // Таймер для плавного движения
-    double lastTime = glfwGetTime();
+    sf::Clock clock;
+    float lastTime = 0.0f;
     float time = 0.0f;
+    bool running = true;
 
-    // Основной цикл
-    while (!glfwWindowShouldClose(window)) {
-        // Вычисляем deltaTime
-        double currentTime = glfwGetTime();
+    while (running) {
+        float currentTime = clock.getElapsedTime().asSeconds();
         float deltaTime = currentTime - lastTime;
         lastTime = currentTime;
         time += deltaTime;
 
-        // Обработка ввода
-        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-            glfwSetWindowShouldClose(window, true);
+        while (const std::optional<sf::Event> event = window.pollEvent()) {
+            if (event) {
+                if (event->is<sf::Event::Closed>()) {
+                    running = false;
+                }
+                else if (const auto* keyEvent = event->getIf<sf::Event::KeyPressed>()) {
+                    if (keyEvent->scancode == sf::Keyboard::Scancode::Escape) {
+                        running = false;
+                    }
+                }
+                else if (const auto* mouseMove = event->getIf<sf::Event::MouseMoved>()) {
+                    if (firstMouse) {
+                        lastMousePos = sf::Vector2i(mouseMove->position.x, mouseMove->position.y);
+                        firstMouse = false;
+                        continue;
+                    }
 
-        // Управление камерой
-        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-            camera.processKeyboard(GLFW_KEY_W, deltaTime);
-        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-            camera.processKeyboard(GLFW_KEY_S, deltaTime);
-        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-            camera.processKeyboard(GLFW_KEY_A, deltaTime);
-        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-            camera.processKeyboard(GLFW_KEY_D, deltaTime);
-        if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
-            camera.processKeyboard(GLFW_KEY_SPACE, deltaTime);
-        if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
-            camera.processKeyboard(GLFW_KEY_LEFT_SHIFT, deltaTime);
+                    float xoffset = mouseMove->position.x - lastMousePos.x;
+                    float yoffset = lastMousePos.y - mouseMove->position.y;
+
+                    lastMousePos = sf::Vector2i(mouseMove->position.x, mouseMove->position.y);
+
+                    camera.ProcessMouseMovement(xoffset, yoffset);
+
+                    sf::Mouse::setPosition({ 400, 300 }, window);
+                    lastMousePos = sf::Vector2i(400, 300);
+                }
+                else if (const auto* mouseWheel = event->getIf<sf::Event::MouseWheelScrolled>()) {
+                    if (mouseWheel->wheel == sf::Mouse::Wheel::Vertical) {
+                        camera.ProcessMouseScroll(mouseWheel->delta);
+                    }
+                }
+            }
+        }
+
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::W))
+            camera.ProcessKeyboard(FORWARD, deltaTime);
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::S))
+            camera.ProcessKeyboard(BACKWARD, deltaTime);
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A))
+            camera.ProcessKeyboard(LEFT, deltaTime);
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::D))
+            camera.ProcessKeyboard(RIGHT, deltaTime);
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Space))
+            camera.ProcessKeyboard(UP, deltaTime);
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LShift))
+            camera.ProcessKeyboard(DOWN, deltaTime);
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Q))
+            camera.ProcessKeyboard(ROTATE_LEFT, deltaTime);
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::E))
+            camera.ProcessKeyboard(ROTATE_RIGHT, deltaTime);
 
         // Очистка буферов
         glClearColor(0.0f, 0.0f, 0.05f, 1.0f);
@@ -640,12 +650,10 @@ int main() {
         glUseProgram(shaderProgram);
 
         // Получаем матрицы из камеры
-        glm::mat4 view = camera.getViewMatrix();
-        int width, height;
-        glfwGetWindowSize(window, &width, &height);
+        glm::mat4 view = camera.GetViewMatrix();
         glm::mat4 projection = glm::perspective(
-            glm::radians(camera.getZoom()),
-            (float)width / (float)height,
+            glm::radians(camera.Zoom),
+            800.0f / 600.0f,
             0.1f,
             200.0f
         );
@@ -726,10 +734,9 @@ int main() {
         }
 
         glBindVertexArray(0);
-        
-        // Обмен буферов и опрос событий
-        glfwSwapBuffers(window);
-        glfwPollEvents();
+
+        // Отображаем на экране
+        window.display();
     }
 
     // Очистка ресурсов
@@ -753,9 +760,6 @@ int main() {
 
     glDeleteProgram(shaderProgram);
     std::cout << "Cleaned up shader program" << std::endl;
-
-    glfwDestroyWindow(window);
-    glfwTerminate();
 
     std::cout << "Program terminated successfully" << std::endl;
 
