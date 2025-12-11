@@ -47,4 +47,20 @@
       <Filter>Файлы заголовков</Filter>
     </ClInclude>
   </ItemGroup>
+  <ItemGroup>
+    <Object Include="fire_extinguisher.obj">
+      <Filter>Файлы ресурсов</Filter>
+    </Object>
+    <Object Include="oil-drum_col.obj">
+      <Filter>Файлы ресурсов</Filter>
+    </Object>
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="fire_extinguisher_texture.jpg">
+      <Filter>Файлы ресурсов</Filter>
+    </Image>
+    <Image Include="oil-drum_col_texture.jpg">
+      <Filter>Файлы ресурсов</Filter>
+    </Image>
+  </ItemGroup>
 </Project>
