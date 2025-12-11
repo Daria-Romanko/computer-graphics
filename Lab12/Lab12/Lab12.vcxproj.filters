@@ -19,4 +19,27 @@
       <Filter>Исходные файлы</Filter>
     </ClCompile>
   </ItemGroup>
+  <ItemGroup>
+    <Text Include="tetrahedron.vert">
+      <Filter>Файлы ресурсов</Filter>
+    </Text>
+    <Text Include="tetrahedron.frag">
+      <Filter>Файлы ресурсов</Filter>
+    </Text>
+    <Text Include="circle.vert">
+      <Filter>Файлы ресурсов</Filter>
+    </Text>
+    <Text Include="circle.frag">
+      <Filter>Файлы ресурсов</Filter>
+    </Text>
+    <Text Include="two_tex.frag">
+      <Filter>Файлы ресурсов</Filter>
+    </Text>
+    <Text Include="tex_color.vert">
+      <Filter>Файлы ресурсов</Filter>
+    </Text>
+    <Text Include="tex_color.frag">
+      <Filter>Файлы ресурсов</Filter>
+    </Text>
+  </ItemGroup>
 </Project>

@@ -4,98 +4,28 @@
 #include <iostream>
 #include <string>
 #include <cmath>
+#include <vector>
+#include <optional>
+#include <fstream>
+#include <sstream>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+std::string readShaderFile(const std::string& filePath) {
+    std::ifstream shaderFile(filePath);
+    if (!shaderFile.is_open()) {
+        std::cout << "Error: Could not open shader file: " << filePath << std::endl;
+        return "";
+    }
 
-// Вершинный шейдер для тетраэдра
-const char* vertexShaderSource = R"(
-#version 330 core
-layout (location = 0) in vec3 aPos;
-layout (location = 1) in vec3 aColor;
+    std::stringstream shaderStream;
+    shaderStream << shaderFile.rdbuf();
+    shaderFile.close();
 
-out vec3 ourColor;
-
-uniform vec3 offset;
-uniform mat4 rotation;
-
-void main()
-{
-    gl_Position = rotation * vec4(aPos + offset, 1.0);
-    ourColor = aColor;
+    return shaderStream.str();
 }
-)";
-
-// Фрагментный шейдер для тетраэдра
-const char* fragmentShaderSource = R"(
-#version 330 core
-out vec4 FragColor;
-in vec3 ourColor;
-
-void main()
-{
-    FragColor = vec4(ourColor, 1.0);
-}
-)";
-
-const char* vertexShaderTexSrc = R"(
-layout (location = 0) in vec3 position;
-layout (location = 2) in vec2 texCoord;
-
-out vec3 color;
-out vec2 TexCoord;
-
-uniform vec3 offset;
-uniform mat4 rotation;
-
-void main()
-{
-    gl_Position = rotation * vec4(position + offset, 1.0);
-    TexCoord = texCoord;
-    color = position + vec3(0.5);
-}
-)";
-
-
-const char* fragmentShaderTexColorSrc = R"(
-in vec3 color;
-in vec2 TexCoord;
-out vec4 FragColor;
-
-uniform sampler2D texture;
-uniform float colorMix;
-
-void main()
-{
-    vec4 gradColor = vec4(color, 1.0);          
-    vec4 texColor = texture(texture, TexCoord);
-    vec4 tinted = texColor * gradColor;        
-
-    FragColor = mix(gradColor, tinted, colorMix);
-}
-)";
-
-
-const char* fragmentShaderTwoTexSrc = R"(
-in vec2 TexCoord;
-out vec4 FragColor;
-
-uniform sampler2D texture1;
-uniform sampler2D texture2;
-uniform float textureMix;
-
-void main()
-{
-    vec4 t1 = texture(texture1, TexCoord);
-    vec4 t2 = texture(texture2, TexCoord);
-    FragColor = mix(t1, t2, textureMix);
-}
-)";
-
 
 GLuint compileShader(GLenum type, const char* source) {
     GLuint shader = glCreateShader(type);
@@ -107,7 +37,7 @@ GLuint compileShader(GLenum type, const char* source) {
     glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
     if (!success) {
         glGetShaderInfoLog(shader, 512, nullptr, infoLog);
-        std::cout << "Ошибка компиляции шейдера:\n" << infoLog << std::endl;
+        std::cout << "Shader compilation error:\n" << infoLog << std::endl;
     }
 
     return shader;
@@ -127,7 +57,7 @@ GLuint createShaderProgram(const char* vsSource, const char* fsSource) {
     glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
     if (!success) {
         glGetProgramInfoLog(shaderProgram, 512, nullptr, infoLog);
-        std::cout << "Ошибка линковки шейдерной программы:\n" << infoLog << std::endl;
+        std::cout << "Shader program linking error:\n" << infoLog << std::endl;
     }
 
     glDeleteShader(vertexShader);
@@ -136,25 +66,95 @@ GLuint createShaderProgram(const char* vsSource, const char* fsSource) {
     return shaderProgram;
 }
 
-GLuint loadTexture(const char* path) {
-    int width, height, nrChannels;
-    stbi_set_flip_vertically_on_load(true);
-    unsigned char* data = stbi_load(path, &width, &height, &nrChannels, 0);
-    if (!data) {
-        std::cout << "Ошибка загрузки текстуры: " << path << std::endl;
+GLuint loadTextureSFML(const std::string& filePath) {
+    sf::Image image;
+    if (!image.loadFromFile(filePath)) {
+        std::cout << "Error loading texture with SFML: " << filePath << std::endl;
         return 0;
     }
 
-    GLuint texture;
-    glGenTextures(1, &texture);
-    glBindTexture(GL_TEXTURE_2D, texture);
+    image.flipVertically();
 
-    glTexImage2D(GL_TEXTURE_2D, 0, 3, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+    sf::Vector2u size = image.getSize();
+    const std::uint8_t* pixels = image.getPixelsPtr();
+
+    GLenum format = GL_RGBA;
+
+    GLuint textureID = 0;
+    glGenTextures(1, &textureID);
+    glBindTexture(GL_TEXTURE_2D, textureID);
+
+    glTexImage2D(GL_TEXTURE_2D, 0, format, size.x, size.y, 0, format, GL_UNSIGNED_BYTE, pixels);
+
     glGenerateMipmap(GL_TEXTURE_2D);
 
-    stbi_image_free(data);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-    return texture;
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    return textureID;
+}
+
+void hsvToRgb(float h, float s, float v, float& r, float& g, float& b) {
+    int i = static_cast<int>(h / 60.0f) % 6;
+    float f = (h / 60.0f) - i;
+    float p = v * (1.0f - s);
+    float q = v * (1.0f - f * s);
+    float t = v * (1.0f - (1.0f - f) * s);
+
+    switch (i) {
+    case 0: r = v; g = t; b = p; break;
+    case 1: r = q; g = v; b = p; break;
+    case 2: r = p; g = v; b = t; break;
+    case 3: r = p; g = q; b = v; break;
+    case 4: r = t; g = p; b = v; break;
+    case 5: r = v; g = p; b = q; break;
+    }
+}
+
+void createCircleVertices(std::vector<float>& vertices, std::vector<unsigned int>& indices,
+    float radius = 0.5f, int segments = 64) {
+    vertices.clear();
+    indices.clear();
+
+    vertices.push_back(0.0f);
+    vertices.push_back(0.0f);
+    vertices.push_back(0.0f);
+
+    vertices.push_back(1.0f); 
+    vertices.push_back(1.0f); 
+    vertices.push_back(1.0f); 
+
+    for (int i = 0; i <= segments; ++i) {
+        float angle = (2.0f * 3.14159265f * i) / segments;
+        float x = radius * cos(angle);
+        float y = radius * sin(angle);
+
+        float h = (360.0f * i) / segments;
+        float r, g, b;
+        hsvToRgb(h, 1.0f, 1.0f, r, g, b);
+
+        vertices.push_back(x);
+        vertices.push_back(y);
+        vertices.push_back(0.0f);
+
+        vertices.push_back(r);
+        vertices.push_back(g);
+        vertices.push_back(b);
+    }
+
+    for (int i = 1; i <= segments; ++i) {
+        indices.push_back(0);      
+        indices.push_back(i);      
+        indices.push_back(i + 1);  
+    }
+
+    indices.push_back(0);
+    indices.push_back(segments);
+    indices.push_back(1);
 }
 
 int main() {
@@ -163,7 +163,7 @@ int main() {
 
     glewExperimental = GL_TRUE;
     if (glewInit() != GLEW_OK) {
-        std::cout << "Ошибка инициализации GLEW!" << std::endl;
+        std::cout << "Error initializing GLEW!" << std::endl;
         return -1;
     }
 
@@ -171,77 +171,104 @@ int main() {
     glDepthFunc(GL_LESS);
     glClearDepth(1.f);
 
-    float vertices[] = {
-        // Позиции         // Цвета
-        -0.5f, -0.5f,  0.0f,  1.0f, 0.0f, 0.0f,  // Красная вершина (передняя)
-         0.5f, -0.5f,  0.0f,  0.0f, 1.0f, 0.0f,  // Зеленая вершина (правая)
-         0.0f, -0.5f,  0.8f,  0.0f, 0.0f, 1.0f,  // Синяя вершина (задняя)
-         0.0f,  0.5f,  0.4f,  1.0f, 1.0f, 0.0f   // Желтая вершина (верхняя)
+    std::string tetrahedronVS = readShaderFile("tetrahedron.vert");
+    std::string tetrahedronFS = readShaderFile("tetrahedron.frag");
+    std::string circleVS = readShaderFile("circle.vert");
+    std::string circleFS = readShaderFile("circle.frag");
+    std::string texColorVS = readShaderFile("tex_color.vert");
+    std::string texColorFS = readShaderFile("tex_color.frag");
+    std::string twoTexFS = readShaderFile("two_tex.frag");
+
+    if (tetrahedronVS.empty() || tetrahedronFS.empty() ||
+        circleVS.empty() || circleFS.empty() ||
+        texColorVS.empty() || texColorFS.empty() ||
+        twoTexFS.empty()) {
+        std::cout << "Error: One or more shader files could not be loaded!" << std::endl;
+        return -1;
+    }
+
+    float tetrahedronVertices[] = {
+        -0.5f, -0.5f,  0.0f,  1.0f, 0.0f, 0.0f,
+         0.5f, -0.5f,  0.0f,  0.0f, 1.0f, 0.0f,
+         0.0f, -0.5f,  0.8f,  0.0f, 0.0f, 1.0f,
+         0.0f,  0.5f,  0.4f,  1.0f, 1.0f, 0.0f
     };
 
-    unsigned int indices[] = {
-        0, 1, 2,  // Основание
-        0, 1, 3,  // Боковая грань
-        1, 2, 3,  // Боковая грань
-        2, 0, 3   // Боковая грань
+    unsigned int tetrahedronIndices[] = {
+        0, 1, 2,
+        0, 1, 3,
+        1, 2, 3,
+        2, 0, 3
     };
 
-    GLuint VBO, VAO, EBO;
-    glGenVertexArrays(1, &VAO);
-    glGenBuffers(1, &VBO);
-    glGenBuffers(1, &EBO);
+    GLuint tetrahedronVAO, tetrahedronVBO, tetrahedronEBO;
+    glGenVertexArrays(1, &tetrahedronVAO);
+    glGenBuffers(1, &tetrahedronVBO);
+    glGenBuffers(1, &tetrahedronEBO);
 
-    glBindVertexArray(VAO);
+    glBindVertexArray(tetrahedronVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, tetrahedronVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(tetrahedronVertices), tetrahedronVertices, GL_STATIC_DRAW);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, tetrahedronEBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(tetrahedronIndices), tetrahedronIndices, GL_STATIC_DRAW);
 
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
-
-    // позиция
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
-    // цвет
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
-
     glBindVertexArray(0);
 
-    GLuint shaderProgram = createShaderProgram(vertexShaderSource, fragmentShaderSource);
-    GLuint offsetLocation = glGetUniformLocation(shaderProgram, "offset");
-    GLuint rotationLocation = glGetUniformLocation(shaderProgram, "rotation");
+    std::vector<float> circleVertices;
+    std::vector<unsigned int> circleIndices;
+    createCircleVertices(circleVertices, circleIndices, 0.5f, 64);
+
+    GLuint circleVAO, circleVBO, circleEBO;
+    glGenVertexArrays(1, &circleVAO);
+    glGenBuffers(1, &circleVBO);
+    glGenBuffers(1, &circleEBO);
+
+    glBindVertexArray(circleVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, circleVBO);
+    glBufferData(GL_ARRAY_BUFFER, circleVertices.size() * sizeof(float), circleVertices.data(), GL_STATIC_DRAW);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, circleEBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, circleIndices.size() * sizeof(unsigned int), circleIndices.data(), GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+    glBindVertexArray(0);
 
     float cubeVertices[] = {
-        -0.5f,-0.5f, 0.5f,     1.0f,0.0f,0.0f,      0.0f,0.0f,  
-         0.5f,-0.5f, 0.5f,     0.0f,1.0f,0.0f,      1.0f,0.0f,  
-         0.5f, 0.5f, 0.5f,     0.0f,0.0f,1.0f,      1.0f,1.0f,  
-        -0.5f, 0.5f, 0.5f,     1.0f,1.0f,0.0f,      0.0f,1.0f,  
+        -0.5f,-0.5f, 0.5f,     1.0f,0.0f,0.0f,      0.0f,0.0f,
+         0.5f,-0.5f, 0.5f,     0.0f,1.0f,0.0f,      1.0f,0.0f,
+         0.5f, 0.5f, 0.5f,     0.0f,0.0f,1.0f,      1.0f,1.0f,
+        -0.5f, 0.5f, 0.5f,     1.0f,1.0f,0.0f,      0.0f,1.0f,
 
-        -0.5f,-0.5f,-0.5f,     1.0f,0.0f,1.0f,      0.0f,0.0f,  
-         0.5f,-0.5f,-0.5f,     0.0f,1.0f,1.0f,      1.0f,0.0f,  
-         0.5f, 0.5f,-0.5f,     0.5f,0.5f,0.5f,      1.0f,1.0f,  
-        -0.5f, 0.5f,-0.5f,     1.0f,0.5f,0.0f,      0.0f,1.0f,  
+        -0.5f,-0.5f,-0.5f,     1.0f,0.0f,1.0f,      0.0f,0.0f,
+         0.5f,-0.5f,-0.5f,     0.0f,1.0f,1.0f,      1.0f,0.0f,
+         0.5f, 0.5f,-0.5f,     0.5f,0.5f,0.5f,      1.0f,1.0f,
+        -0.5f, 0.5f,-0.5f,     1.0f,0.5f,0.0f,      0.0f,1.0f,
 
-        -0.5f,-0.5f,-0.5f,     1.0f,0.0f,0.0f,      0.0f,0.0f,  
-        -0.5f,-0.5f, 0.5f,     0.0f,1.0f,0.0f,      1.0f,0.0f,  
-        -0.5f, 0.5f, 0.5f,     0.0f,0.0f,1.0f,      1.0f,1.0f,  
-        -0.5f, 0.5f,-0.5f,     1.0f,1.0f,0.0f,      0.0f,1.0f,  
+        -0.5f,-0.5f,-0.5f,     1.0f,0.0f,0.0f,      0.0f,0.0f,
+        -0.5f,-0.5f, 0.5f,     0.0f,1.0f,0.0f,      1.0f,0.0f,
+        -0.5f, 0.5f, 0.5f,     0.0f,0.0f,1.0f,      1.0f,1.0f,
+        -0.5f, 0.5f,-0.5f,     1.0f,1.0f,0.0f,      0.0f,1.0f,
 
-         0.5f,-0.5f,-0.5f,     1.0f,0.0f,0.0f,      0.0f,0.0f,  
-         0.5f,-0.5f, 0.5f,     0.0f,1.0f,0.0f,      1.0f,0.0f,  
-         0.5f, 0.5f, 0.5f,     0.0f,0.0f,1.0f,      1.0f,1.0f,  
-         0.5f, 0.5f,-0.5f,     1.0f,1.0f,0.0f,      0.0f,1.0f,  
+         0.5f,-0.5f,-0.5f,     1.0f,0.0f,0.0f,      0.0f,0.0f,
+         0.5f,-0.5f, 0.5f,     0.0f,1.0f,0.0f,      1.0f,0.0f,
+         0.5f, 0.5f, 0.5f,     0.0f,0.0f,1.0f,      1.0f,1.0f,
+         0.5f, 0.5f,-0.5f,     1.0f,1.0f,0.0f,      0.0f,1.0f,
 
-         -0.5f, 0.5f,-0.5f,     1.0f,0.0f,0.0f,      0.0f,0.0f, 
-          0.5f, 0.5f,-0.5f,     0.0f,1.0f,0.0f,      1.0f,0.0f, 
+         -0.5f, 0.5f,-0.5f,     1.0f,0.0f,0.0f,      0.0f,0.0f,
+          0.5f, 0.5f,-0.5f,     0.0f,1.0f,0.0f,      1.0f,0.0f,
           0.5f, 0.5f, 0.5f,     0.0f,0.0f,1.0f,      1.0f,1.0f,
          -0.5f, 0.5f, 0.5f,     1.0f,1.0f,0.0f,      0.0f,1.0f,
 
          -0.5f,-0.5f,-0.5f,     1.0f,0.0f,0.0f,      0.0f,0.0f,
-          0.5f,-0.5f,-0.5f,     0.0f,1.0f,0.0f,      1.0f,0.0f, 
-          0.5f,-0.5f, 0.5f,     0.0f,0.0f,1.0f,      1.0f,1.0f,  
-         -0.5f,-0.5f, 0.5f,     1.0f,1.0f,0.0f,      0.0f,1.0f   
+          0.5f,-0.5f,-0.5f,     0.0f,1.0f,0.0f,      1.0f,0.0f,
+          0.5f,-0.5f, 0.5f,     0.0f,0.0f,1.0f,      1.0f,1.0f,
+         -0.5f,-0.5f, 0.5f,     1.0f,1.0f,0.0f,      0.0f,1.0f
     };
 
     unsigned int cubeIndices[] = {
@@ -259,27 +286,32 @@ int main() {
     glGenBuffers(1, &cubeEBO);
 
     glBindVertexArray(cubeVAO);
-
     glBindBuffer(GL_ARRAY_BUFFER, cubeVBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(cubeVertices), cubeVertices, GL_STATIC_DRAW);
-
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, cubeEBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(cubeIndices), cubeIndices, GL_STATIC_DRAW);
 
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
-
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
     glEnableVertexAttribArray(2);
-
     glBindVertexArray(0);
 
-    GLuint shaderTexColor = createShaderProgram(vertexShaderTexSrc, fragmentShaderTexColorSrc);
-    GLuint shaderTwoTex = createShaderProgram(vertexShaderTexSrc, fragmentShaderTwoTexSrc);
+    GLuint shaderProgram = createShaderProgram(tetrahedronVS.c_str(), tetrahedronFS.c_str());
+    GLuint shaderCircle = createShaderProgram(circleVS.c_str(), circleFS.c_str());
+    GLuint shaderTexColor = createShaderProgram(texColorVS.c_str(), texColorFS.c_str());
+    GLuint shaderTwoTex = createShaderProgram(texColorVS.c_str(), twoTexFS.c_str());
+
+    GLuint offsetLocation = glGetUniformLocation(shaderProgram, "offset");
+    GLuint rotationLocation = glGetUniformLocation(shaderProgram, "rotation");
+
+    GLuint circleOffsetLocation = glGetUniformLocation(shaderCircle, "offset");
+    GLuint circleRotationLocation = glGetUniformLocation(shaderCircle, "rotation");
+    GLuint circleScaleLocation = glGetUniformLocation(shaderCircle, "scale");
 
     GLuint texColorOffsetLoc = glGetUniformLocation(shaderTexColor, "offset");
     GLuint texColorMixLoc = glGetUniformLocation(shaderTexColor, "colorMix");
-    GLuint texColorSamplerLoc = glGetUniformLocation(shaderTexColor, "ourTexture");
+    GLuint texColorSamplerLoc = glGetUniformLocation(shaderTexColor, "texture");
     GLuint texColorRotationLoc = glGetUniformLocation(shaderTexColor, "rotation");
 
     GLuint twoTexOffsetLoc = glGetUniformLocation(shaderTwoTex, "offset");
@@ -288,29 +320,54 @@ int main() {
     GLuint twoTexSampler2Loc = glGetUniformLocation(shaderTwoTex, "texture2");
     GLuint twoTexRotationLoc = glGetUniformLocation(shaderTwoTex, "rotation");
 
-    GLuint texture1 = loadTexture("hamster.jpg");
-    GLuint texture2 = loadTexture("simpson.jpg");
-    GLuint texture3 = loadTexture("grass.jpg");
+    std::cout << "Loading textures with SFML..." << std::endl;
 
+    GLuint texture1 = loadTextureSFML("hamster.jpg");
+    GLuint texture2 = loadTextureSFML("simpson.jpg");
+    GLuint texture3 = loadTextureSFML("grass.jpg");
 
-    if (!texture1 || !texture2) {
-        std::cout << "Не удалось загрузить одну или обе текстуры!" << std::endl;
+    if (!texture1 || !texture2 || !texture3) {
+        std::cout << "Error: Could not load one or more textures with SFML!" << std::endl;
+        std::cout << "Make sure the following files exist in the working directory:" << std::endl;
+        std::cout << "1. hamster.jpg" << std::endl;
+        std::cout << "2. simpson.jpg" << std::endl;
+        std::cout << "3. grass.jpg" << std::endl;
+
+        if (!texture1) {
+            std::cout << "Creating fallback texture for hamster.jpg" << std::endl;
+        }
+    }
+    else {
+        std::cout << "All textures loaded successfully with SFML!" << std::endl;
     }
 
-    float offsets[3][3] = {
-        {0.0f, 0.0f, 0.0f},   // тетраэдр
-        {0.0f, 0.0f, 0.0f},   // куб с текстурой+градиентом
-        {0.0f, 0.0f, 0.0f}    // куб с двумя текстурами
+    float offsets[4][3] = {
+        {0.0f, 0.0f, 0.0f},
+        {0.0f, 0.0f, 0.0f},
+        {0.0f, 0.0f, 0.0f},
+        {0.0f, 0.0f, 0.0f}
+    };
+
+    float scale[4][3] = {
+        {1.0f, 1.0f, 1.0f},
+        {1.0f, 1.0f, 1.0f},
+        {1.0f, 1.0f, 1.0f},
+        {1.0f, 1.0f, 1.0f}
     };
 
     float moveSpeed = 0.05f;
-    float colorMix = 0.5f; 
-    float textureMix = 0.5f;  
-    int   currentFigure = 1;   
+    float scaleSpeed = 0.05f;
+    float colorMix = 0.5f;
+    float textureMix = 0.5f;
+    int currentFigure = 1;
 
     glm::mat4 rotation = glm::mat4(1.0f);
     rotation = glm::rotate(rotation, glm::radians(45.0f), glm::vec3(0.0f, 1.0f, 0.0f));
     rotation = glm::rotate(rotation, glm::radians(30.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+
+    float angleX = 0.0f;
+    float angleY = 0.0f;
+    float angleZ = 0.0f;
 
     while (window.isOpen()) {
         for (auto event = window.pollEvent(); event.has_value(); event = window.pollEvent()) {
@@ -324,7 +381,6 @@ int main() {
                 int idx = currentFigure - 1;
 
                 switch (keyEvent->scancode) {
-                    // выбор фигуры
                 case sf::Keyboard::Scancode::Num1:
                     currentFigure = 1;
                     break;
@@ -334,8 +390,10 @@ int main() {
                 case sf::Keyboard::Scancode::Num3:
                     currentFigure = 3;
                     break;
+                case sf::Keyboard::Scancode::Num4:
+                    currentFigure = 4;
+                    break;
 
-                    // смещения
                 case sf::Keyboard::Scancode::W:
                     offsets[idx][1] += moveSpeed;
                     break;
@@ -356,9 +414,11 @@ int main() {
                     break;
                 case sf::Keyboard::Scancode::R:
                     offsets[idx][0] = offsets[idx][1] = offsets[idx][2] = 0.0f;
+                    if (currentFigure == 4) {
+                        scale[idx][0] = scale[idx][1] = scale[idx][2] = 1.0f;
+                    }
                     break;
 
-                    // смешивание цвета/текстур
                 case sf::Keyboard::Scancode::Up:
                     if (currentFigure == 2) {
                         colorMix += 0.05f;
@@ -367,6 +427,11 @@ int main() {
                     else if (currentFigure == 3) {
                         textureMix += 0.05f;
                         if (textureMix > 1.0f) textureMix = 1.0f;
+                    }
+                    else if (currentFigure == 4) {
+                        scale[idx][0] += scaleSpeed;
+                        scale[idx][1] += scaleSpeed;
+                        scale[idx][2] += scaleSpeed;
                     }
                     break;
                 case sf::Keyboard::Scancode::Down:
@@ -378,6 +443,29 @@ int main() {
                         textureMix -= 0.05f;
                         if (textureMix < 0.0f) textureMix = 0.0f;
                     }
+                    else if (currentFigure == 4) {
+                        scale[idx][0] -= scaleSpeed;
+                        if (scale[idx][0] < 0.1f) scale[idx][0] = 0.1f;
+                        scale[idx][1] -= scaleSpeed;
+                        if (scale[idx][1] < 0.1f) scale[idx][1] = 0.1f;
+                        scale[idx][2] -= scaleSpeed;
+                        if (scale[idx][2] < 0.1f) scale[idx][2] = 0.1f;
+                    }
+                    break;
+
+                case sf::Keyboard::Scancode::Num7:
+                    if (currentFigure == 4) scale[idx][0] += scaleSpeed;
+                    break;
+                case sf::Keyboard::Scancode::Num8:
+                    if (currentFigure == 4) scale[idx][0] -= scaleSpeed;
+                    if (scale[idx][0] < 0.1f) scale[idx][0] = 0.1f;
+                    break;
+                case sf::Keyboard::Scancode::Num9:
+                    if (currentFigure == 4) scale[idx][1] += scaleSpeed;
+                    break;
+                case sf::Keyboard::Scancode::Num0:
+                    if (currentFigure == 4) scale[idx][1] -= scaleSpeed;
+                    if (scale[idx][1] < 0.1f) scale[idx][1] = 0.1f;
                     break;
 
                 default:
@@ -389,18 +477,27 @@ int main() {
         glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+        angleX += 0.5f;
+        angleY += 0.3f;
+        angleZ += 0.2f;
+
+        glm::mat4 dynamicRotation = glm::mat4(1.0f);
+        dynamicRotation = glm::rotate(dynamicRotation, glm::radians(angleX), glm::vec3(1.0f, 0.0f, 0.0f));
+        dynamicRotation = glm::rotate(dynamicRotation, glm::radians(angleY), glm::vec3(0.0f, 1.0f, 0.0f));
+        dynamicRotation = glm::rotate(dynamicRotation, glm::radians(angleZ), glm::vec3(0.0f, 0.0f, 1.0f));
+
         if (currentFigure == 1) {
             glUseProgram(shaderProgram);
             glUniform3f(offsetLocation, offsets[0][0], offsets[0][1], offsets[0][2]);
-            glUniformMatrix4fv(rotationLocation, 1, GL_FALSE, glm::value_ptr(rotation));
+            glUniformMatrix4fv(rotationLocation, 1, GL_FALSE, glm::value_ptr(dynamicRotation));
 
-            glBindVertexArray(VAO);
+            glBindVertexArray(tetrahedronVAO);
             glDrawElements(GL_TRIANGLES, 12, GL_UNSIGNED_INT, 0);
             glBindVertexArray(0);
         }
         else if (currentFigure == 2) {
             glUseProgram(shaderTexColor);
-            glUniformMatrix4fv(texColorRotationLoc, 1, GL_FALSE, glm::value_ptr(rotation));
+            glUniformMatrix4fv(texColorRotationLoc, 1, GL_FALSE, glm::value_ptr(dynamicRotation));
             glUniform3f(texColorOffsetLoc, offsets[1][0], offsets[1][1], offsets[1][2]);
             glUniform1f(texColorMixLoc, colorMix);
 
@@ -414,7 +511,7 @@ int main() {
         }
         else if (currentFigure == 3) {
             glUseProgram(shaderTwoTex);
-            glUniformMatrix4fv(twoTexRotationLoc, 1, GL_FALSE, glm::value_ptr(rotation));
+            glUniformMatrix4fv(twoTexRotationLoc, 1, GL_FALSE, glm::value_ptr(dynamicRotation));
             glUniform3f(twoTexOffsetLoc, offsets[2][0], offsets[2][1], offsets[2][2]);
             glUniform1f(twoTexMixLoc, textureMix);
 
@@ -430,24 +527,40 @@ int main() {
             glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
             glBindVertexArray(0);
         }
+        else if (currentFigure == 4) {
+            glUseProgram(shaderCircle);
+            glUniform3f(circleOffsetLocation, offsets[3][0], offsets[3][1], offsets[3][2]);
+            glUniform3f(circleScaleLocation, scale[3][0], scale[3][1], scale[3][2]);
+            glUniformMatrix4fv(circleRotationLocation, 1, GL_FALSE, glm::value_ptr(dynamicRotation));
+
+            glBindVertexArray(circleVAO);
+            glDrawElements(GL_TRIANGLES, circleIndices.size(), GL_UNSIGNED_INT, 0);
+            glBindVertexArray(0);
+        }
 
         window.display();
     }
 
-    glDeleteVertexArrays(1, &VAO);
-    glDeleteBuffers(1, &VBO);
-    glDeleteBuffers(1, &EBO);
+    glDeleteVertexArrays(1, &tetrahedronVAO);
+    glDeleteBuffers(1, &tetrahedronVBO);
+    glDeleteBuffers(1, &tetrahedronEBO);
+
+    glDeleteVertexArrays(1, &circleVAO);
+    glDeleteBuffers(1, &circleVBO);
+    glDeleteBuffers(1, &circleEBO);
 
     glDeleteVertexArrays(1, &cubeVAO);
     glDeleteBuffers(1, &cubeVBO);
     glDeleteBuffers(1, &cubeEBO);
 
     glDeleteProgram(shaderProgram);
+    glDeleteProgram(shaderCircle);
     glDeleteProgram(shaderTexColor);
     glDeleteProgram(shaderTwoTex);
 
     glDeleteTextures(1, &texture1);
     glDeleteTextures(1, &texture2);
+    glDeleteTextures(1, &texture3);
 
     return 0;
 }

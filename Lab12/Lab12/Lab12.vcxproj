@@ -131,6 +131,15 @@
   <ItemGroup>
     <ClCompile Include="Lab12.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <Text Include="circle.frag" />
+    <Text Include="tex_color.frag" />
+    <Text Include="tex_color.vert" />
+    <Text Include="tetrahedron.frag" />
+    <Text Include="circle.vert" />
+    <Text Include="two_tex.frag" />
+    <Text Include="tetrahedron.vert" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
