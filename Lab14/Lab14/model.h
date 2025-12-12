@@ -11,16 +11,23 @@
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
+struct SubMesh {
+    unsigned int indexOffset;
+    unsigned int indexCount;
+    GLuint texture = 0;
+};
+
 struct Model {
     std::vector<glm::vec3> vertices;
     std::vector<glm::vec2> texCoords;
     std::vector<glm::vec3> normals;
     std::vector<unsigned int> indices;
 
+    std::vector<SubMesh> subMeshes;
+
     GLuint vao = 0;
     GLuint vbo = 0;
     GLuint ebo = 0;
-    GLuint texture = 0;
 
     int indexCount = 0;
     std::string name;

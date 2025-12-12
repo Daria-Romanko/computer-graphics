@@ -13,12 +13,14 @@ out VS_OUT {
 uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
+uniform mat3 normalMatrix;
 
 void main()
 {
     vec4 worldPos = model * vec4(aPos, 1.0);
+
     vs_out.FragPos = worldPos.xyz;
-    vs_out.Normal = mat3(transpose(inverse(model))) * aNormal;
+    vs_out.Normal  = normalize(normalMatrix * aNormal);
     vs_out.TexCoord = aTexCoord;
 
     gl_Position = projection * view * worldPos;
