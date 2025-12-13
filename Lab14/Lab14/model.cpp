@@ -1,4 +1,5 @@
-﻿#include "model.h"
+#include "model.h"
+#include <fstream>
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
@@ -33,7 +34,6 @@ static GLuint LoadMaterialTexture(aiMaterial* material, const std::string& direc
         if (tex != 0)
             return tex;
 
-        std::cerr << "Warning: could not load texture: " << fullPath << "\n";
     }
 
     static const char* exts[] = { ".png", ".jpg", ".jpeg", ".bmp", ".tga" };
@@ -45,6 +45,9 @@ static GLuint LoadMaterialTexture(aiMaterial* material, const std::string& direc
         if (tex != 0) {
             std::cout << "Loaded fallback texture: " << fallback << "\n";
             return tex;
+        }
+        else {
+            return 0;
         }
     }
 
@@ -135,11 +138,15 @@ bool LoadOBJModel(const std::string& filename, Model& model)
     return true;
 }
 
+bool FileExists(const std::string& filename) {
+    std::ifstream file(filename);
+    return file.good();
+}
+
 GLuint LoadTextureFromFile(const std::string& filename)
 {
     sf::Image img;
-    if (!img.loadFromFile(filename)) {
-        std::cerr << "Failed to load texture: " << filename << std::endl;
+    if (!FileExists(filename) || !img.loadFromFile(filename)) {
         return 0;
     }
 
