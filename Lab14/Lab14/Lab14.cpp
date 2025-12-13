@@ -1,4 +1,4 @@
-﻿#include <GL/glew.h>
+#include <GL/glew.h>
 
 #include <SFML/Graphics.hpp>
 #include <SFML/OpenGL.hpp>
@@ -96,13 +96,11 @@ void UploadSpotLights(GLuint program, const SpotLightData* spotLights, int count
     }
 }
 
-
-
 int main()
 {
     sf::VideoMode desktop = sf::VideoMode::getDesktopMode();
 
-    sf::RenderWindow window(desktop, "bananaCat test", sf::Style::None);
+    sf::RenderWindow window(desktop, "bananaCat test with Toon Shading", sf::Style::None);
 
     window.setFramerateLimit(60);
     window.setActive(true);
@@ -180,6 +178,13 @@ int main()
     GLint dirDiffLoc = glGetUniformLocation(shaderProgram, "dirLight.diffuse");
     GLint dirSpecLoc = glGetUniformLocation(shaderProgram, "dirLight.specular");
 
+    // Toon shading uniforms
+    GLint useToonShadingLoc = glGetUniformLocation(shaderProgram, "u_useToonShading");
+    GLint toonLevelsLoc = glGetUniformLocation(shaderProgram, "u_toonLevels");
+    GLint toonSpecularSizeLoc = glGetUniformLocation(shaderProgram, "u_toonSpecularSize");
+    GLint toonEdgeThresholdLoc = glGetUniformLocation(shaderProgram, "u_toonEdgeThreshold");
+    GLint outlineColorLoc = glGetUniformLocation(shaderProgram, "u_outlineColor");
+
     glUniform1i(matDiffLoc, 0);
     glUniform3f(matSpecLoc, 1.0f, 1.0f, 1.0f);
     glUniform1f(matShineLoc, 32.0f);
@@ -192,10 +197,22 @@ int main()
     glUniform1i(numPointLightsLoc, pointLightCount);
     glUniform1i(numSpotLightsLoc, spotLightCount);
 
+    // Initialize toon shading uniforms
+    bool useToonShading = false;
+    int toonLevels = 4;
+    float toonSpecularSize = 0.1f;
+    float toonEdgeThreshold = 0.2f;
+    glm::vec3 outlineColor = glm::vec3(0.0f, 0.0f, 0.0f);
+
+    glUniform1i(useToonShadingLoc, useToonShading ? 1 : 0);
+    glUniform1i(toonLevelsLoc, toonLevels);
+    glUniform1f(toonSpecularSizeLoc, toonSpecularSize);
+    glUniform1f(toonEdgeThresholdLoc, toonEdgeThreshold);
+    glUniform3fv(outlineColorLoc, 1, glm::value_ptr(outlineColor));
+
     glUseProgram(0);
 
     std::vector<SceneObject> sceneObjects;
-
 
     auto AddObjToScene = [&](const char* path,
         const char* name,
@@ -225,7 +242,6 @@ int main()
     AddObjToScene("models/UFO.obj", "ufo", { -3.3f,7, -7 }, { 10,-65,-2 }, { 1,1,1 });
     AddObjToScene("models/pepe.obj", "pepe", { 14,16, -65 }, { 8.5f,-15,0 }, { 10,10,10 });
 
-
     int selectedObject = 0;
 
     char modelPathBuffer[256] = "models/bananaCat.obj";
@@ -249,6 +265,11 @@ int main()
             else if (const auto* keyEvent = event->getIf<sf::Event::KeyPressed>()) {
                 if (keyEvent->scancode == sf::Keyboard::Scancode::Escape) {
                     running = false;
+                }
+                // Toggle toon shading with T key
+                else if (keyEvent->scancode == sf::Keyboard::Scancode::T) {
+                    useToonShading = !useToonShading;
+                    std::cout << "Toon shading: " << (useToonShading ? "ON" : "OFF") << std::endl;
                 }
             }
             else if (const auto* mouseWheel = event->getIf<sf::Event::MouseWheelScrolled>()) {
@@ -361,6 +382,27 @@ int main()
 
         ImGui::End();
 
+        ImGui::Begin("Toon Shading");
+
+        if (ImGui::CollapsingHeader("Toon Shading Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (ImGui::Checkbox("Enable Toon Shading", &useToonShading)) {
+            }
+
+            ImGui::Text("Press 'T' key to toggle Toon Shading");
+            ImGui::Separator();
+
+            if (useToonShading) {
+                ImGui::Separator();
+                ImGui::Text("Toon shading creates a cartoon/cel-shaded look");
+                ImGui::Text("by quantizing colors and adding dark outlines.");
+                ImGui::Text("Color Levels: controls color quantization (lower = more cartoonish)");
+                ImGui::Text("Specular Size: controls size of highlights");
+                ImGui::Text("Edge Threshold: controls outline thickness");
+            }
+        }
+
+        ImGui::End();
+
         ImGui::Begin("Scene");
 
         ImGui::Text("Objects: %d", (int)sceneObjects.size());
@@ -427,6 +469,13 @@ int main()
 
         glUseProgram(shaderProgram);
 
+        // Update toon shading uniforms
+        glUniform1i(useToonShadingLoc, useToonShading ? 1 : 0);
+        glUniform1i(toonLevelsLoc, toonLevels);
+        glUniform1f(toonSpecularSizeLoc, toonSpecularSize);
+        glUniform1f(toonEdgeThresholdLoc, toonEdgeThreshold);
+        glUniform3fv(outlineColorLoc, 1, glm::value_ptr(outlineColor));
+
         glm::mat4 view = camera.GetViewMatrix();
 
         sf::Vector2u size = window.getSize();
@@ -472,7 +521,6 @@ int main()
 
             glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(modelMat)));
             glUniformMatrix3fv(normalMatrixLoc, 1, GL_FALSE, glm::value_ptr(normalMatrix));
-
 
             DrawModel(obj.model);
         }
